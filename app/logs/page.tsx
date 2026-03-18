@@ -14,6 +14,13 @@ type ItemLike = {
   imageUrl: string | null;
 };
 
+type DbItemLike = {
+  id: string;
+  name: string | null;
+  category: string;
+  imageUrl: string | null;
+};
+
 type SavedOutfit = {
   id: string;
   userId: string | null;
@@ -48,9 +55,41 @@ export default async function LogsPage() {
     },
   });
 
-  const outfits: SavedOutfit[] = outfitsRaw;
+  const outfits: SavedOutfit[] = outfitsRaw.map(
+    (outfit: {
+      id: string;
+      userId: string | null;
+      topItemId: string | null;
+      bottomItemId: string | null;
+      onepieceItemId: string | null;
+      outerItemId: string | null;
+      shoesItemId: string | null;
+      bagItemId: string | null;
+      score: number | null;
+      comment: string | null;
+      isFavorite: boolean;
+      temperatureLabel: string | null;
+      occasion: string | null;
+      createdAt: Date;
+    }): SavedOutfit => ({
+      id: outfit.id,
+      userId: outfit.userId,
+      topItemId: outfit.topItemId,
+      bottomItemId: outfit.bottomItemId,
+      onepieceItemId: outfit.onepieceItemId,
+      outerItemId: outfit.outerItemId,
+      shoesItemId: outfit.shoesItemId,
+      bagItemId: outfit.bagItemId,
+      score: outfit.score,
+      comment: outfit.comment,
+      isFavorite: outfit.isFavorite,
+      temperatureLabel: outfit.temperatureLabel,
+      occasion: outfit.occasion,
+      createdAt: outfit.createdAt,
+    })
+  );
 
-  const itemIds = Array.from(
+  const itemIds: string[] = Array.from(
     new Set(
       outfits
         .flatMap((outfit: SavedOutfit): Array<string | null> => [
@@ -77,12 +116,14 @@ export default async function LogsPage() {
       })
     : [];
 
-  const items: ItemLike[] = itemsRaw.map((item) => ({
-    id: item.id,
-    name: item.name,
-    category: item.category,
-    imageUrl: item.imageUrl,
-  }));
+  const items: ItemLike[] = itemsRaw.map(
+    (item: DbItemLike): ItemLike => ({
+      id: item.id,
+      name: item.name,
+      category: item.category,
+      imageUrl: item.imageUrl,
+    })
+  );
 
   const itemMap = new Map<string, ItemLike>(
     items.map((item: ItemLike): [string, ItemLike] => [item.id, item])
