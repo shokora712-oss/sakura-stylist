@@ -222,97 +222,207 @@ async function analyzeImageWithVision(params: {
   return parsed;
 }
 
+async function generateEvaluationComment(params: {
+  occasion: string;
+  season: string;
+  style: string;
+  analysis: ImageAnalysis;
+  totalScore: number;
+}) {
+  const { occasion, season, style, analysis, totalScore } = params;
+
+  const response = await client.responses.create({
+    model: "gpt-4.1-mini",
+    input: [
+      {
+        role: "system",
+        content: `
+あなたはファッションコーデ評価AIです。
+
+以下の情報を元に、JSON形式で評価コメントを生成してください。
+
+ルール:
+- 必ずJSONのみ返す
+- summaryは1〜2文
+- goodPointsは3つ
+- improvementPointsは3つ
+- 抽象的すぎず、具体的に
+        `,
+      },
+      {
+        role: "user",
+        content: `
+TPO: ${occasion}
+季節: ${season}
+なりたい系統: ${style}
+
+検出アイテム: ${analysis.detectedItems.join(",")}
+色: ${analysis.dominantColors.join(",")}
+印象: ${analysis.comment}
+
+スコア: ${totalScore}
+        `,
+      },
+    ],
+    text: {
+      format: {
+        type: "json_schema",
+        name: "evaluation_comment",
+        schema: {
+          type: "object",
+          properties: {
+            summary: { type: "string" },
+            goodPoints: {
+              type: "array",
+              items: { type: "string" },
+            },
+            improvementPoints: {
+              type: "array",
+              items: { type: "string" },
+            },
+          },
+          required: ["summary", "goodPoints", "improvementPoints"],
+        },
+      },
+    },
+  });
+
+  return JSON.parse(response.output_text);
+}
+
 async function buildEvaluation(params: {
   occasion: string;
   season: string;
   style: string;
   image: File;
-  analysis: ImageAnalysis;
-}): Promise<EvaluationResult> {
+  analysis: {
+    detectedItems: string[];
+    dominantColors: string[];
+    styleGuess: string;
+    seasonGuess: string;
+    comment: string;
+  };
+}) {
+  const { occasion, season, style, analysis } = params;
 
-  const { occasion, season, style, image, analysis } = params;
+  // ======================
+  // ① ベーススコア
+  // ======================
+  let baseScore = 70;
 
-  let baseScore = 78;
+  // シーン適合
+  if (occasion === "date") baseScore += 4;
+  if (occasion === "office") baseScore += 3;
 
-  if (occasion === "date") baseScore += 3;
-  if (occasion === "office") baseScore += 2;
-  if (season === "autumn" || season === "winter") baseScore += 2;
-  if (style === "minimal" || style === "office") baseScore += 2;
+  // 季節適合
+  if (season && analysis.seasonGuess === season) baseScore += 4;
 
-  if (analysis.dominantColors.length <= 3) baseScore += 2;
-  if (
-    analysis.detectedItems.includes("トップス") &&
-    (analysis.detectedItems.includes("ボトムス") ||
-      analysis.detectedItems.includes("ワンピース"))
-  ) {
-    baseScore += 2;
+  // スタイル適合
+  if (style && analysis.styleGuess === style) baseScore += 4;
+
+  // ======================
+  // ② カラー評価
+  // ======================
+  const colorCount = analysis.dominantColors.length;
+
+  let colorScore = 18;
+
+  if (colorCount <= 3) colorScore += 4;
+  if (colorCount === 1) colorScore -= 2;
+
+  if (style === "minimal") {
+    if (colorCount <= 3) colorScore += 2;
   }
 
-  const totalScore = Math.min(baseScore, 95);
+  colorScore = Math.min(colorScore, 24);
 
-  const colorScore = Math.min(
-    24,
-    18 +
-      (analysis.dominantColors.length <= 3 ? 3 : 1) +
-      (style === "minimal" ? 2 : 0)
+  // ======================
+  // ③ シルエット評価
+  // ======================
+  const hasTop = analysis.detectedItems.includes("トップス");
+  const hasBottom =
+    analysis.detectedItems.includes("ボトムス") ||
+    analysis.detectedItems.includes("ワンピース");
+
+  let silhouetteScore = 18;
+
+  if (hasTop) silhouetteScore += 2;
+  if (hasBottom) silhouetteScore += 2;
+
+  silhouetteScore = Math.min(silhouetteScore, 24);
+
+  // ======================
+  // ④ 季節スコア
+  // ======================
+  let seasonScore = 18;
+
+  if (season && analysis.seasonGuess === season) {
+    seasonScore += 4;
+  } else {
+    seasonScore += 2;
+  }
+
+  seasonScore = Math.min(seasonScore, 24);
+
+  // ======================
+  // ⑤ シーンスコア
+  // ======================
+  let occasionScore = 18;
+
+  if (style === "office" && occasion === "office") {
+    occasionScore += 4;
+  } else {
+    occasionScore += 2;
+  }
+
+  occasionScore = Math.min(occasionScore, 24);
+
+  // ======================
+  // ⑥ 合計スコア
+  // ======================
+  const totalScore = Math.min(
+    baseScore +
+      (colorScore - 18) +
+      (silhouetteScore - 18) +
+      (seasonScore - 18) +
+      (occasionScore - 18),
+    95
   );
 
-  const silhouetteScore = Math.min(
-    24,
-    18 +
-      (analysis.detectedItems.includes("トップス") ? 2 : 0) +
-      (analysis.detectedItems.includes("ボトムス") ||
-      analysis.detectedItems.includes("ワンピース")
-        ? 2
-        : 0)
-  );
+  // ======================
+  // ⑦ LLM用 breakdown（←ここ超重要）
+  // ======================
+  const breakdown = {
+    occasion: occasionScore,
+    style: style && analysis.styleGuess === style ? 22 : 18,
+    color: colorScore,
+    preference: 20, // 仮（あとでユーザー嗜好入れる）
+    rewear: 18,
+    setupBonus: hasTop && hasBottom ? 2 : 0,
+    suitBonus: style === "office" ? 2 : 0,
+    moodCohesionBonus: colorCount <= 3 ? 2 : 0,
+    versatilityBonus: 2,
+    harmonyPenalty: colorCount >= 5 ? 2 : 0,
+    styleHarmonyPenalty:
+      style && analysis.styleGuess !== style ? 2 : 0,
+  };
 
-  const seasonScore = Math.min(
-    24,
-    18 + (analysis.seasonGuess === season ? 4 : 2)
-  );
+  // ======================
+  // ⑧ summary（暫定）
+  // ======================
+  const summary = "全体としてバランスの取れたコーデです";
 
-  const occasionScore = Math.min(
-    24,
-    18 + (style === "office" && occasion === "office" ? 4 : 3)
-  );
+  // ======================
+  // ⑨ good / improvement（暫定）
+  // ======================
+  const goodPoints = [
+    colorCount <= 3 ? "色数がまとまっている" : "色使いに個性がある",
+    hasTop && hasBottom ? "コーデとして成立している" : "構成がシンプル",
+  ];
 
-  const fallbackSummary = buildSummary({
-    occasion,
-    season,
-    style,
-    totalScore,
-    analysis,
-  });
-
-  const fallbackGoodPoints = buildGoodPoints({
-    occasion,
-    season,
-    style,
-    analysis,
-  });
-
-  const fallbackImprovementPoints = buildImprovementPoints({
-    occasion,
-    season,
-    style,
-    analysis,
-  });
-
-  const llmComment = await buildEvaluateCommentWithLlm({
-    occasion,
-    season,
-    style,
-    totalScore,
-    colorScore,
-    silhouetteScore,
-    seasonScore,
-    occasionScore,
-    analysis,
-    fallbackSummary,
-    fallbackGoodPoints,
-    fallbackImprovementPoints,
-  });
+  const improvementPoints = [
+    colorCount >= 5 ? "色数を少し絞るとまとまりやすい" : "小物でアクセントを足しても◎",
+  ];
 
   return {
     totalScore,
@@ -320,16 +430,10 @@ async function buildEvaluation(params: {
     silhouetteScore,
     seasonScore,
     occasionScore,
-    summary: llmComment?.summary ?? fallbackSummary,
-    goodPoints: llmComment?.goodPoints ?? fallbackGoodPoints,
-    improvementPoints:
-      llmComment?.improvementPoints ?? fallbackImprovementPoints,
-    debug: {
-      imageName: image.name ?? null,
-      imageType: image.type ?? null,
-      imageSize: typeof image.size === "number" ? image.size : null,
-    },
-    analysis,
+    summary,
+    goodPoints,
+    improvementPoints,
+    breakdown,
   };
 }
 

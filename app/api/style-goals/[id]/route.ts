@@ -3,13 +3,14 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-type Params = {
-  params: {
+type RouteContext = {
+  params: Promise<{
     id: string;
-  };
+  }>;
 };
 
-export async function PATCH(req: Request, { params }: Params) {
+export async function PATCH(req: Request, context: RouteContext) {
+  const { id } = await context.params;
   const session = await getServerSession(authOptions);
 
   if (!session?.user?.id) {
@@ -18,7 +19,7 @@ export async function PATCH(req: Request, { params }: Params) {
 
   const existing = await prisma.styleGoal.findFirst({
     where: {
-      id: params.id,
+      id,
       userId: session.user.id,
     },
   });
@@ -28,28 +29,40 @@ export async function PATCH(req: Request, { params }: Params) {
   }
 
   const body = await req.json();
+
   const targetStyle =
-    typeof body?.targetStyle === "string" ? body.targetStyle.trim() : existing.targetStyle;
+    typeof body?.targetStyle === "string"
+      ? body.targetStyle.trim()
+      : existing.targetStyle;
+
   const priority =
-    typeof body?.priority === "string" ? body.priority.trim() : existing.priority;
+    typeof body?.priority === "string"
+      ? body.priority.trim()
+      : existing.priority;
+
   const note =
-    typeof body?.note === "string" ? body.note.trim() : existing.note;
+    typeof body?.note === "string"
+      ? body.note.trim()
+      : existing.note;
+
   const isActive =
-    typeof body?.isActive === "boolean" ? body.isActive : existing.isActive;
+    typeof body?.isActive === "boolean"
+      ? body.isActive
+      : existing.isActive;
 
   if (isActive) {
     await prisma.styleGoal.updateMany({
       where: {
         userId: session.user.id,
         isActive: true,
-        NOT: { id: params.id },
+        NOT: { id },
       },
       data: { isActive: false },
     });
   }
 
   const goal = await prisma.styleGoal.update({
-    where: { id: params.id },
+    where: { id },
     data: {
       targetStyle,
       priority: priority || null,
@@ -61,7 +74,8 @@ export async function PATCH(req: Request, { params }: Params) {
   return NextResponse.json({ ok: true, goal });
 }
 
-export async function DELETE(_req: Request, { params }: Params) {
+export async function DELETE(_req: Request, context: RouteContext) {
+  const { id } = await context.params;
   const session = await getServerSession(authOptions);
 
   if (!session?.user?.id) {
@@ -70,7 +84,7 @@ export async function DELETE(_req: Request, { params }: Params) {
 
   const existing = await prisma.styleGoal.findFirst({
     where: {
-      id: params.id,
+      id,
       userId: session.user.id,
     },
   });
@@ -80,7 +94,7 @@ export async function DELETE(_req: Request, { params }: Params) {
   }
 
   await prisma.styleGoal.delete({
-    where: { id: params.id },
+    where: { id },
   });
 
   return NextResponse.json({ ok: true });
