@@ -30,6 +30,23 @@ type OutfitLike = {
   createdAt: Date;
 };
 
+type SavedOutfit = {
+  id: string;
+  userId: string | null;
+  topItemId: string | null;
+  bottomItemId: string | null;
+  onepieceItemId: string | null;
+  outerItemId: string | null;
+  shoesItemId: string | null;
+  bagItemId: string | null;
+  comment?: string | null;
+  score?: number | null;
+  occasion?: string | null;
+  temperatureLabel?: string | null;
+  isFavorite?: boolean;
+  createdAt: Date;
+};
+
 export default async function LogsPage() {
   const session = await getServerSession(authOptions);
 
@@ -50,7 +67,7 @@ export default async function LogsPage() {
   const itemIds = Array.from(
     new Set(
       outfits
-        .flatMap((outfit) => [
+        .flatMap((outfit: SavedOutfit) => [
           outfit.topItemId,
           outfit.bottomItemId,
           outfit.onepieceItemId,
