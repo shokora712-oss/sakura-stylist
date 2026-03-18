@@ -14,8 +14,9 @@ type ItemLike = {
   imageUrl: string | null;
 };
 
-type OutfitLike = {
+type SavedOutfit = {
   id: string;
+  userId: string | null;
   topItemId: string | null;
   bottomItemId: string | null;
   onepieceItemId: string | null;
@@ -30,23 +31,6 @@ type OutfitLike = {
   createdAt: Date;
 };
 
-type SavedOutfit = {
-  id: string;
-  userId: string | null;
-  topItemId: string | null;
-  bottomItemId: string | null;
-  onepieceItemId: string | null;
-  outerItemId: string | null;
-  shoesItemId: string | null;
-  bagItemId: string | null;
-  comment?: string | null;
-  score?: number | null;
-  occasion?: string | null;
-  temperatureLabel?: string | null;
-  isFavorite?: boolean;
-  createdAt: Date;
-};
-
 export default async function LogsPage() {
   const session = await getServerSession(authOptions);
 
@@ -54,7 +38,7 @@ export default async function LogsPage() {
     redirect("/login");
   }
 
-  const outfits = await prisma.outfit.findMany({
+  const outfitsRaw = await prisma.outfit.findMany({
     where: {
       userId: session.user.id,
       isFavorite: true,
@@ -64,10 +48,12 @@ export default async function LogsPage() {
     },
   });
 
+  const outfits: SavedOutfit[] = outfitsRaw;
+
   const itemIds = Array.from(
     new Set(
       outfits
-        .flatMap((outfit: SavedOutfit) => [
+        .flatMap((outfit: SavedOutfit): Array<string | null> => [
           outfit.topItemId,
           outfit.bottomItemId,
           outfit.onepieceItemId,
@@ -75,11 +61,14 @@ export default async function LogsPage() {
           outfit.shoesItemId,
           outfit.bagItemId,
         ])
-        .filter((id: string | null): id is string => typeof id === "string" && id.length > 0)
+        .filter(
+          (id: string | null): id is string =>
+            typeof id === "string" && id.length > 0
+        )
     )
   );
 
-  const items = itemIds.length
+  const itemsRaw = itemIds.length
     ? await prisma.item.findMany({
         where: {
           id: { in: itemIds },
@@ -88,16 +77,25 @@ export default async function LogsPage() {
       })
     : [];
 
-  const itemMap = new Map(items.map((item) => [item.id, item]));
+  const items: ItemLike[] = itemsRaw.map((item) => ({
+    id: item.id,
+    name: item.name,
+    category: item.category,
+    imageUrl: item.imageUrl,
+  }));
+
+  const itemMap = new Map<string, ItemLike>(
+    items.map((item: ItemLike): [string, ItemLike] => [item.id, item])
+  );
 
   return (
     <main className="min-h-screen bg-[#fafafa] pb-32">
       <div className="mx-auto max-w-md px-4 py-6">
         <div className="mb-6">
-            <AppHeader
-              title="コーデログ"
-              description="お気に入り保存したコーデを一覧で確認できます。"
-            />
+          <AppHeader
+            title="コーデログ"
+            description="お気に入り保存したコーデを一覧で確認できます。"
+          />
         </div>
 
         {outfits.length === 0 ? (
@@ -115,7 +113,7 @@ export default async function LogsPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {outfits.map((outfit) => {
+            {outfits.map((outfit: SavedOutfit) => {
               const topItem = outfit.topItemId ? itemMap.get(outfit.topItemId) ?? null : null;
               const bottomItem = outfit.bottomItemId
                 ? itemMap.get(outfit.bottomItemId) ?? null
@@ -143,7 +141,7 @@ export default async function LogsPage() {
                       </h2>
                       <p className="mt-1 text-sm text-gray-500">
                         保存日：
-                        {new Date(outfit.createdAt).toLocaleString("ja-JP")}
+                        {outfit.createdAt.toLocaleString("ja-JP")}
                       </p>
                     </div>
 
