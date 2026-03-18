@@ -1,0 +1,127 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String      @id @default(cuid())
+  name          String?
+  email         String?     @unique
+  emailVerified DateTime?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+  items         Item[]
+  outfits       Outfit[]
+  profile       Profile?
+  styleGoals    StyleGoal[]
+}
+
+model Profile {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  skeletonType  String?
+  personalColor String?
+  favoriteStyle String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model StyleGoal {
+  id          String   @id @default(cuid())
+  userId      String
+  targetStyle String
+  priority    String?  // low / medium / high
+  note        String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive])
+}
+
+model Item {
+  id          String   @id @default(cuid())
+  userId      String?
+  name        String?
+  category    String
+  subCategory String?
+  color       String[]
+  material    String[]
+  season      String[]
+  styleTags   String[]
+  formality   Int
+  brand       String?
+  imageUrl    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  memo        String?
+
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Outfit {
+  id               String   @id @default(cuid())
+  userId           String?
+  topItemId        String?
+  bottomItemId     String?
+  onepieceItemId   String?
+  outerItemId      String?
+  shoesItemId      String?
+  bagItemId        String?
+  score            Int?
+  comment          String?
+  isFavorite       Boolean  @default(true)
+  temperatureLabel String?
+  occasion         String?
+  createdAt        DateTime @default(now())
+
+  user             User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+}
+
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([sessionToken])
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@id([identifier, token])
+}
