@@ -88,10 +88,32 @@ export async function POST(req: NextRequest) {
       );
     }
 
+const normalizedImageType = (image.type || "").toLowerCase();
+
+if (
+  normalizedImageType.includes("heic") ||
+  normalizedImageType.includes("heif")
+) {
+  return NextResponse.json(
+    {
+      error:
+        "iPhoneのHEIC画像はまだ未対応です。JPEGまたはPNGの画像で試してください。",
+    },
+    { status: 400 }
+  );
+}
+
+if (image.size > 5 * 1024 * 1024) {
+  return NextResponse.json(
+    { error: "画像サイズが大きすぎます。5MB以下で試してください。" },
+    { status: 400 }
+  );
+}
+
     const bytes = await image.arrayBuffer();
     const buffer = Buffer.from(bytes);
     const base64 = buffer.toString("base64");
-    const mimeType = image.type || "image/jpeg";
+    const mimeType = normalizedImageType || "image/jpeg";
     const dataUrl = `data:${mimeType};base64,${base64}`;
 
     const analysis = await analyzeImageWithVision({
@@ -114,17 +136,21 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error("POST /api/evaluate error:", error);
 
+    const rawMessage =
+      error instanceof Error ? error.message : "コーデ評価に失敗しました";
+
+    const friendlyMessage =
+      rawMessage.includes("expected pattern")
+        ? "画像の形式またはサイズの処理に失敗しました。別の画像でもう一度試してください。"
+        : rawMessage;
+
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "コーデ評価に失敗しました",
+        error: friendlyMessage,
       },
       { status: 500 }
     );
   }
-}
 
 async function analyzeImageWithVision(params: {
   dataUrl: string;
@@ -134,94 +160,61 @@ async function analyzeImageWithVision(params: {
 }): Promise<ImageAnalysis> {
   const { dataUrl, occasion, season, style } = params;
 
-  const response = await client.responses.create({
+  const completion = await client.chat.completions.create({
     model: "gpt-4.1-mini",
-    input: [
+    temperature: 0.2,
+    response_format: { type: "json_object" },
+    messages: [
       {
         role: "system",
         content: [
-          {
-            type: "input_text",
-            text: [
-              "あなたはファッション画像解析アシスタントです。",
-              "入力されたコーデ画像を解析して、必ず指定されたJSONだけを返してください。",
-              "分からないことは推測しすぎず、画像から読み取れる範囲で答えてください。",
-              "styleGuess は casual / girly / street / mode / minimal / feminine / office のいずれかにしてください。",
-              "seasonGuess は spring / summer / autumn / winter のいずれかにしてください。",
-              "detectedItems は日本語で返してください。例: トップス, ボトムス, アウター, シューズ, バッグ, ワンピース",
-              "dominantColors は日本語で返してください。例: ホワイト, ブラック, グレー, ベージュ, ブルー, グリーン, ピンク",
-              "comment は簡潔な1文にしてください。",
-            ].join("\n"),
-          },
-        ],
+          "あなたはファッション画像解析アシスタントです。",
+          "入力されたコーデ画像を解析して、必ずJSONのみ返してください。",
+          "分からないことは推測しすぎず、画像から読み取れる範囲で答えてください。",
+          "styleGuess は casual / girly / street / mode / minimal / feminine / office のいずれかにしてください。",
+          "seasonGuess は spring / summer / autumn / winter のいずれかにしてください。",
+          "detectedItems は日本語で返してください。例: トップス, ボトムス, アウター, シューズ, バッグ, ワンピース",
+          "dominantColors は日本語で返してください。例: ホワイト, ブラック, グレー, ベージュ, ブルー, グリーン, ピンク",
+          "comment は簡潔な1文にしてください。",
+          "返却形式:",
+          "{",
+          '  "detectedItems": ["トップス", "ボトムス"],',
+          '  "dominantColors": ["ブラック", "ホワイト"],',
+          '  "styleGuess": "casual",',
+          '  "seasonGuess": "winter",',
+          '  "comment": "モノトーンでカジュアル寄りの印象です。"',
+          "}",
+        ].join("\n"),
       },
       {
         role: "user",
         content: [
           {
-            type: "input_text",
+            type: "text",
             text: `TPO: ${occasion}\n季節: ${season}\nなりたい系統: ${style}\nこのコーデ画像を解析してください。`,
           },
           {
-            type: "input_image",
-            image_url: dataUrl,
-            detail: "high",
+            type: "image_url",
+            image_url: {
+              url: dataUrl,
+            },
           },
         ],
       },
     ],
-    text: {
-      format: {
-        type: "json_schema",
-        name: "image_analysis",
-        schema: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            detectedItems: {
-              type: "array",
-              items: { type: "string" },
-            },
-            dominantColors: {
-              type: "array",
-              items: { type: "string" },
-            },
-            styleGuess: {
-              type: "string",
-              enum: [
-                "casual",
-                "girly",
-                "street",
-                "mode",
-                "minimal",
-                "feminine",
-                "office",
-              ],
-            },
-            seasonGuess: {
-              type: "string",
-              enum: ["spring", "summer", "autumn", "winter"],
-            },
-            comment: {
-              type: "string",
-            },
-          },
-          required: [
-            "detectedItems",
-            "dominantColors",
-            "styleGuess",
-            "seasonGuess",
-            "comment",
-          ],
-        },
-      },
-    },
   });
 
-  const parsed = JSON.parse(response.output_text) as ImageAnalysis;
-  return parsed;
-}
+  const raw = completion.choices[0]?.message?.content ?? "{}";
+  const parsed = JSON.parse(raw) as ImageAnalysis;
 
+  return {
+    detectedItems: Array.isArray(parsed.detectedItems) ? parsed.detectedItems : [],
+    dominantColors: Array.isArray(parsed.dominantColors) ? parsed.dominantColors : [],
+    styleGuess: parsed.styleGuess ?? "casual",
+    seasonGuess: parsed.seasonGuess ?? "spring",
+    comment: parsed.comment ?? "シンプルなコーデに見えます。",
+  };
+}
 async function generateEvaluationComment(params: {
   occasion: string;
   season: string;
@@ -636,4 +629,5 @@ function getSeasonLabel(value: string) {
 
 function getStyleLabel(value: string) {
   return styleOptions.find((option) => option.value === value)?.label ?? value;
+}
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChangeEvent, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import AppHeader from "../components/AppHeader";
 
 type OccasionOption = {
@@ -85,11 +85,69 @@ export default function EvaluatePage() {
   const [message, setMessage] = useState("");
   const [result, setResult] = useState<EvaluationResult | null>(null);
 
+  useEffect(() => {
+    return () => {
+      if (imagePreviewUrl) {
+        URL.revokeObjectURL(imagePreviewUrl);
+      }
+    };
+  }, [imagePreviewUrl]);
+
   const canEvaluate = useMemo(() => {
     return Boolean(imageFile && selectedOccasion && selectedSeason && selectedStyle);
   }, [imageFile, selectedOccasion, selectedSeason, selectedStyle]);
 
-  const handleImageChange = (e: ChangeEvent<HTMLInputElement>) => {
+const compressImageFile = async (file: File): Promise<File> => {
+  const imageUrl = URL.createObjectURL(file);
+
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = reject;
+      el.src = imageUrl;
+    });
+
+    const maxWidth = 1600;
+    const maxHeight = 1600;
+
+    let { width, height } = img;
+
+    if (width > maxWidth || height > maxHeight) {
+      const ratio = Math.min(maxWidth / width, maxHeight / height);
+      width = Math.round(width * ratio);
+      height = Math.round(height * ratio);
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      throw new Error("画像圧縮の初期化に失敗しました");
+    }
+
+    ctx.drawImage(img, 0, 0, width, height);
+
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, "image/jpeg", 0.82);
+    });
+
+    if (!blob) {
+      throw new Error("画像圧縮に失敗しました");
+    }
+
+    const originalBaseName = file.name.replace(/\.[^.]+$/, "");
+    return new File([blob], `${originalBaseName}.jpg`, {
+      type: "image/jpeg",
+    });
+  } finally {
+    URL.revokeObjectURL(imageUrl);
+  }
+};
+
+  const handleImageChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] ?? null;
 
     if (!file) {
@@ -98,11 +156,22 @@ export default function EvaluatePage() {
       return;
     }
 
-    setImageFile(file);
-    const previewUrl = URL.createObjectURL(file);
-    setImagePreviewUrl(previewUrl);
-    setResult(null);
-    setMessage("");
+    try {
+      setMessage("画像を調整中...");
+      setResult(null);
+
+      const compressedFile = await compressImageFile(file);
+
+      setImageFile(compressedFile);
+      const previewUrl = URL.createObjectURL(compressedFile);
+      setImagePreviewUrl(previewUrl);
+      setMessage("");
+    } catch (error) {
+      console.error(error);
+      setImageFile(null);
+      setImagePreviewUrl("");
+      setMessage("画像の読み込みに失敗しました");
+    }
   };
 
   const handleEvaluate = async () => {

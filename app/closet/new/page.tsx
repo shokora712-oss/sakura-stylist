@@ -297,17 +297,75 @@ function formToPayload(form: FormState, imageUrl: string | null) {
   };
 }
 
-function fileToDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
 
 function classNames(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
+}
+
+async function compressImageFile(file: File): Promise<File> {
+  const imageUrl = URL.createObjectURL(file);
+
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = reject;
+      el.src = imageUrl;
+    });
+
+    const maxWidth = 1600;
+    const maxHeight = 1600;
+
+    let { width, height } = img;
+
+    if (width > maxWidth || height > maxHeight) {
+      const ratio = Math.min(maxWidth / width, maxHeight / height);
+      width = Math.round(width * ratio);
+      height = Math.round(height * ratio);
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      throw new Error("画像圧縮の初期化に失敗しました");
+    }
+
+    ctx.drawImage(img, 0, 0, width, height);
+
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, "image/jpeg", 0.82);
+    });
+
+    if (!blob) {
+      throw new Error("画像圧縮に失敗しました");
+    }
+
+    const originalBaseName = file.name.replace(/\.[^.]+$/, "");
+
+    return new File([blob], `${originalBaseName}.jpg`, {
+      type: "image/jpeg",
+    });
+  } finally {
+    URL.revokeObjectURL(imageUrl);
+  }
+}
+
+async function fileToDataUrl(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+
+  let binary = "";
+  const chunkSize = 0x8000;
+
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+
+  const base64 = btoa(binary);
+  return `data:${file.type || "image/jpeg"};base64,${base64}`;
 }
 
 export default function ClosetNewPage() {
@@ -341,6 +399,17 @@ export default function ClosetNewPage() {
   const [isSavingBulk, setIsSavingBulk] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+ 
+  useEffect(() => {
+    return () => {
+      if (singlePreviewUrl) {
+        URL.revokeObjectURL(singlePreviewUrl);
+      }
+      if (outfitPreviewUrl) {
+        URL.revokeObjectURL(outfitPreviewUrl);
+      }
+    };
+  }, [singlePreviewUrl, outfitPreviewUrl]);
 
     useEffect(() => {
       if (!saveSuccess) return;
@@ -425,24 +494,44 @@ export default function ClosetNewPage() {
     return String(uploadedUrl);
   }
 
-  function handleSingleFileChange(e: ChangeEvent<HTMLInputElement>) {
+  async function handleSingleFileChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
-    setSingleFile(file);
     setSingleUploadedImageUrl(null);
     resetMessages();
 
     if (!file) {
+      setSingleFile(null);
       setSinglePreviewUrl(null);
       return;
     }
 
-    const url = URL.createObjectURL(file);
-    setSinglePreviewUrl(url);
+    try {
+      setAnalyzeSuccess("画像を調整中...");
+      setAnalyzeError(null);
+
+      const compressedFile = await compressImageFile(file);
+
+      setSingleFile(compressedFile);
+
+      if (singlePreviewUrl) {
+        URL.revokeObjectURL(singlePreviewUrl);
+      }
+
+      const url = URL.createObjectURL(compressedFile);
+      setSinglePreviewUrl(url);
+
+      setAnalyzeSuccess(null);
+    } catch (error) {
+      console.error(error);
+      setSingleFile(null);
+      setSinglePreviewUrl(null);
+      setAnalyzeSuccess(null);
+      setAnalyzeError("画像の読み込みに失敗しました");
+    }
   }
 
-  function handleOutfitFileChange(e: ChangeEvent<HTMLInputElement>) {
+  async function handleOutfitFileChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
-    setOutfitFile(file);
     setOutfitUploadedImageUrl(null);
     setCandidates([]);
     setOutfitSummaryMessage(null);
@@ -450,12 +539,34 @@ export default function ClosetNewPage() {
     resetMessages();
 
     if (!file) {
+      setOutfitFile(null);
       setOutfitPreviewUrl(null);
       return;
     }
 
-    const url = URL.createObjectURL(file);
-    setOutfitPreviewUrl(url);
+    try {
+      setAnalyzeSuccess("画像を調整中...");
+      setAnalyzeError(null);
+
+      const compressedFile = await compressImageFile(file);
+
+      setOutfitFile(compressedFile);
+
+      if (outfitPreviewUrl) {
+        URL.revokeObjectURL(outfitPreviewUrl);
+      }
+
+      const url = URL.createObjectURL(compressedFile);
+      setOutfitPreviewUrl(url);
+
+      setAnalyzeSuccess(null);
+    } catch (error) {
+      console.error(error);
+      setOutfitFile(null);
+      setOutfitPreviewUrl(null);
+      setAnalyzeSuccess(null);
+      setAnalyzeError("画像の読み込みに失敗しました");
+    }
   }
 
   async function handleAnalyzeSingleImage() {
