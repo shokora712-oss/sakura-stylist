@@ -590,35 +590,89 @@ async function requestJsonFromVision(params: {
     throw new Error("OPENAI_VISION_MODEL が設定されていません");
   }
 
-  const response = await openai.chat.completions.create({
+  console.log("[items/analyze] requestJsonFromVision:start", {
     model,
-    temperature: 0.2,
-    messages: [
-      {
-        role: "system",
-        content: params.prompt,
-      },
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: params.userText,
-          },
-          {
-            type: "image_url",
-            image_url: {
-              url: params.imageDataUrl,
-            },
-          },
-        ],
-      },
-    ],
+    promptLength: params.prompt.length,
+    userTextLength: params.userText.length,
+    imageDataUrlLength: params.imageDataUrl.length,
+    imageDataUrlPrefix: params.imageDataUrl.slice(0, 40),
   });
 
-  const text = response.choices?.[0]?.message?.content ?? "";
-  const jsonText = extractJson(text);
-  return JSON.parse(jsonText);
+  let response;
+  try {
+    response = await openai.chat.completions.create({
+      model,
+      temperature: 0.2,
+      messages: [
+        {
+          role: "system",
+          content: params.prompt,
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: params.userText,
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: params.imageDataUrl,
+              },
+            },
+          ],
+        },
+      ],
+    });
+  } catch (error) {
+    console.error("[items/analyze] openai.chat.completions.create failed:", error);
+    throw new Error(
+      error instanceof Error
+        ? `OpenAI呼び出し失敗: ${error.message}`
+        : "OpenAI呼び出し失敗"
+    );
+  }
+
+  const rawContent = response.choices?.[0]?.message?.content;
+
+  console.log("[items/analyze] openai response received", {
+    choicesLength: response.choices?.length ?? 0,
+    contentType: typeof rawContent,
+  });
+
+  const text = typeof rawContent === "string" ? rawContent : "";
+
+  console.log("[items/analyze] response text preview", text.slice(0, 500));
+
+  if (!text.trim()) {
+    throw new Error("OpenAIの応答テキストが空です");
+  }
+
+  let jsonText = "";
+  try {
+    jsonText = extractJson(text);
+  } catch (error) {
+    console.error("[items/analyze] extractJson failed. raw text:", text);
+    throw new Error(
+      error instanceof Error
+        ? `JSON抽出失敗: ${error.message}`
+        : "JSON抽出失敗"
+    );
+  }
+
+  console.log("[items/analyze] extracted json preview", jsonText.slice(0, 500));
+
+  try {
+    return JSON.parse(jsonText);
+  } catch (error) {
+    console.error("[items/analyze] JSON.parse failed. jsonText:", jsonText);
+    throw new Error(
+      error instanceof Error
+        ? `JSON解析失敗: ${error.message}`
+        : "JSON解析失敗"
+    );
+  }
 }
 
 function resolveMode(value: unknown): AnalyzeMode {
@@ -646,12 +700,22 @@ export async function POST(req: Request) {
       );
     }
 
-    const body = await req.json();
-    const imageDataUrl = body?.imageDataUrl;
-    const mode = resolveMode(body?.mode);
-    const sourceCandidateId =
-      typeof body?.sourceCandidateId === "string" ? body.sourceCandidateId : null;
-    const splitTargets = sanitizeSplitTargets(body?.splitTargets);
+const body = await req.json();
+const imageDataUrl = body?.imageDataUrl;
+const mode = resolveMode(body?.mode);
+const sourceCandidateId =
+  typeof body?.sourceCandidateId === "string" ? body.sourceCandidateId : null;
+const splitTargets = sanitizeSplitTargets(body?.splitTargets);
+
+console.log("[items/analyze] POST body parsed", {
+  mode,
+  hasImageDataUrl: typeof imageDataUrl === "string",
+  imageDataUrlLength: typeof imageDataUrl === "string" ? imageDataUrl.length : 0,
+  imageDataUrlPrefix:
+    typeof imageDataUrl === "string" ? imageDataUrl.slice(0, 40) : null,
+  sourceCandidateId,
+  splitTargets,
+});
 
     if (!imageDataUrl || typeof imageDataUrl !== "string") {
       return NextResponse.json({ error: "imageDataUrl が必要です" }, { status: 400 });
@@ -665,17 +729,34 @@ export async function POST(req: Request) {
     }
 
     if (mode === "single_item") {
+      console.log("[items/analyze] mode=single_item start");
+
       const parsed = await requestJsonFromVision({
         prompt: SINGLE_ITEM_PROMPT,
         imageDataUrl,
         userText: "この画像のアイテムを Closet AI の登録候補JSONとして返してください。",
       });
 
+      console.log("[items/analyze] mode=single_item parsed", {
+        keys: parsed && typeof parsed === "object" ? Object.keys(parsed) : [],
+      });
+
       const sanitized = sanitizeSingleResponse(parsed);
+
+      console.log("[items/analyze] mode=single_item sanitized", {
+        category: sanitized.category,
+        subCategory: sanitized.subCategory,
+        colorCount: sanitized.color.length,
+        seasonCount: sanitized.season.length,
+        styleCount: sanitized.styleTags.length,
+      });
+
       return NextResponse.json(sanitized);
     }
 
     if (mode === "outfit_photo") {
+      console.log("[items/analyze] mode=outfit_photo start");
+
       const parsed = await requestJsonFromVision({
         prompt: OUTFIT_PHOTO_PROMPT,
         imageDataUrl,
@@ -683,9 +764,27 @@ export async function POST(req: Request) {
           "このコーデ写真に写っているアイテム候補を複数抽出し、Closet AI の候補JSONとして返してください。",
       });
 
+      console.log("[items/analyze] mode=outfit_photo parsed", {
+        keys: parsed && typeof parsed === "object" ? Object.keys(parsed) : [],
+        rawCandidatesCount: Array.isArray(parsed?.candidates) ? parsed.candidates.length : 0,
+        warningsCount: Array.isArray(parsed?.warnings) ? parsed.warnings.length : 0,
+      });
+
       const sanitized = sanitizeOutfitResponse(parsed, "outfit_photo", null);
+
+      console.log("[items/analyze] mode=outfit_photo sanitized", {
+        candidateCount: sanitized.candidates.length,
+        needsReviewCount: sanitized.summary.needsReviewCount,
+        warningsCount: sanitized.warnings.length,
+      });
+
       return NextResponse.json(sanitized);
     }
+
+    console.log("[items/analyze] mode=split_candidate start", {
+      sourceCandidateId,
+      splitTargets,
+    });
 
     const parsed = await requestJsonFromVision({
       prompt: buildSplitPrompt(splitTargets),
@@ -695,10 +794,32 @@ export async function POST(req: Request) {
       )} に分けた候補JSONを返してください。`,
     });
 
+    console.log("[items/analyze] mode=split_candidate parsed", {
+      keys: parsed && typeof parsed === "object" ? Object.keys(parsed) : [],
+      rawCandidatesCount: Array.isArray(parsed?.candidates) ? parsed.candidates.length : 0,
+      warningsCount: Array.isArray(parsed?.warnings) ? parsed.warnings.length : 0,
+    });
+
     const sanitized = sanitizeOutfitResponse(parsed, "split_candidate", sourceCandidateId);
-    return NextResponse.json(sanitized);
-  } catch (error) {
-    console.error("POST /api/items/analyze error:", error);
-    return NextResponse.json({ error: "画像解析に失敗しました" }, { status: 500 });
-  }
+
+    console.log("[items/analyze] mode=split_candidate sanitized", {
+      candidateCount: sanitized.candidates.length,
+      needsReviewCount: sanitized.summary.needsReviewCount,
+      warningsCount: sanitized.warnings.length,
+    });
+
+return NextResponse.json(sanitized); 
+} catch (error) {
+  console.error("POST /api/items/analyze error:", error);
+
+  return NextResponse.json(
+    {
+      error:
+        error instanceof Error
+          ? `画像解析に失敗しました: ${error.message}`
+          : "画像解析に失敗しました",
+    },
+    { status: 500 }
+  );
+}
 }

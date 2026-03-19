@@ -580,7 +580,15 @@ export default function ClosetNewPage() {
 
       setIsAnalyzingSingle(true);
 
-      const imageDataUrl = await fileToDataUrl(singleFile);
+      console.log("[closet/new] single analyze file:", {
+        name: singleFile.name,
+        type: singleFile.type,
+        sizeKB: Math.round(singleFile.size / 1024),
+      });
+
+const imageDataUrl = await fileToDataUrl(singleFile);
+
+console.log("[closet/new] single analyze dataUrl length:", imageDataUrl.length);
 
       const res = await fetch("/api/items/analyze", {
         method: "POST",
@@ -643,7 +651,23 @@ export default function ClosetNewPage() {
 
       setIsAnalyzingOutfit(true);
 
-      const imageDataUrl = await fileToDataUrl(outfitFile);
+      console.log("[closet/new] outfit analyze file:", {
+  name: outfitFile.name,
+  type: outfitFile.type,
+  sizeKB: Math.round(outfitFile.size / 1024),
+});
+
+console.log("[closet/new] split analyze file:", {
+  name: outfitFile.name,
+  type: outfitFile.type,
+  sizeKB: Math.round(outfitFile.size / 1024),
+});
+
+const imageDataUrl = await fileToDataUrl(outfitFile);
+
+console.log("[closet/new] split analyze dataUrl length:", imageDataUrl.length);
+
+console.log("[closet/new] outfit analyze dataUrl length:", imageDataUrl.length);
 
       const res = await fetch("/api/items/analyze", {
         method: "POST",
