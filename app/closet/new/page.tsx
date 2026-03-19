@@ -353,19 +353,21 @@ async function compressImageFile(file: File): Promise<File> {
   }
 }
 
+// compressImageFile の直下に追加
 async function fileToDataUrl(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
-
-  let binary = "";
-  const chunkSize = 0x8000;
-
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-
-  const base64 = btoa(binary);
-  return `data:${file.type || "image/jpeg"};base64,${base64}`;
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === "string") {
+        resolve(result);
+      } else {
+        reject(new Error("FileReaderの結果が文字列ではありません"));
+      }
+    };
+    reader.onerror = () => reject(new Error("ファイルの読み込みに失敗しました"));
+    reader.readAsDataURL(file);
+  });
 }
 
 export default function ClosetNewPage() {
