@@ -262,6 +262,7 @@ IMPORTANT DETECTION RULES:
 - For bags, focus on the bag body rather than the arm or hand holding it.
 - Because numeric labels will be placed on the image using bbox, return bbox values that visually correspond to the detected item position.
 - If bbox is unclear, return null.
+- name must be a very short Japanese noun phrase (e.g. "白いワンピース", "デニムパンツ"). No punctuation. No sentences. Do not leave name as null if the item is clearly visible.
 - note and reasons must be written in Japanese, briefly.
 - brand should only be filled when reasonably confident.
 - formality must be an integer from 1 to 5, or null if unknown.
@@ -303,6 +304,8 @@ Expected JSON response:
 
 function buildSplitPrompt(splitTargets: string[]) {
   return `
+You are a JSON-only response bot. You must always respond with valid JSON. Never write explanations or text outside of JSON.
+
 You are an AI assistant that helps register clothing items from outfit photos.
 
 The user has indicated that the following detected candidates should be split into separate items.
@@ -317,7 +320,8 @@ STRICT RULES:
 - Return JSON only. Do not include explanations or text before or after the JSON.
 - Only return candidates whose category matches the splitTargets list.
 - Return at most ${splitTargets.length} candidates.
-- Do not guess aggressively. If uncertain, return null or an empty array.
+- If you cannot clearly detect items for the specified categories, still return your best guess for each category based on what you can see. Do not return empty candidates.
+- Even if the item boundary is unclear, infer subCategory from the overall style and silhouette of the outfit.
 - If the detection is unclear, set needsReview to true.
 
 - category must be one of the following or null:
@@ -700,22 +704,26 @@ export async function POST(req: Request) {
       );
     }
 
-const body = await req.json();
-const imageDataUrl = body?.imageDataUrl;
-const mode = resolveMode(body?.mode);
-const sourceCandidateId =
-  typeof body?.sourceCandidateId === "string" ? body.sourceCandidateId : null;
-const splitTargets = sanitizeSplitTargets(body?.splitTargets);
+    const body = await req.json();
+    const imageDataUrl = body?.imageDataUrl;
+    const mode = resolveMode(body?.mode);
+    const sourceCandidateId =
+      typeof body?.sourceCandidateId === "string" ? body.sourceCandidateId : null;
+    const splitTargets = sanitizeSplitTargets(body?.splitTargets);
+    const sourceColor = sanitizeArray(body?.sourceColor, ALLOWED_COLOR_VALUES).slice(0, 2);
+    const sourceSeason = sanitizeArray(body?.sourceSeason, ALLOWED_SEASON_VALUES);
+    const sourceStyleTags = sanitizeArray(body?.sourceStyleTags, ALLOWED_STYLE_VALUES);
+    const sourceFormality = sanitizeFormality(body?.sourceFormality);
 
-console.log("[items/analyze] POST body parsed", {
-  mode,
-  hasImageDataUrl: typeof imageDataUrl === "string",
-  imageDataUrlLength: typeof imageDataUrl === "string" ? imageDataUrl.length : 0,
-  imageDataUrlPrefix:
-    typeof imageDataUrl === "string" ? imageDataUrl.slice(0, 40) : null,
-  sourceCandidateId,
-  splitTargets,
-});
+    console.log("[items/analyze] POST body parsed", {
+      mode,
+      hasImageDataUrl: typeof imageDataUrl === "string",
+      imageDataUrlLength: typeof imageDataUrl === "string" ? imageDataUrl.length : 0,
+      imageDataUrlPrefix:
+        typeof imageDataUrl === "string" ? imageDataUrl.slice(0, 40) : null,
+      sourceCandidateId,
+      splitTargets,
+    });
 
     if (!imageDataUrl || typeof imageDataUrl !== "string") {
       return NextResponse.json({ error: "imageDataUrl が必要です" }, { status: 400 });
@@ -781,6 +789,7 @@ console.log("[items/analyze] POST body parsed", {
       return NextResponse.json(sanitized);
     }
 
+    // mode === "split_candidate"
     console.log("[items/analyze] mode=split_candidate start", {
       sourceCandidateId,
       splitTargets,
@@ -808,18 +817,63 @@ console.log("[items/analyze] POST body parsed", {
       warningsCount: sanitized.warnings.length,
     });
 
-return NextResponse.json(sanitized); 
-} catch (error) {
-  console.error("POST /api/items/analyze error:", error);
+    // AIがcandidatesを返せなかった場合、指定カテゴリの空フォームを生成
+    if (sanitized.candidates.length === 0 && splitTargets.length > 0) {
+      // AIが分割できなかった場合、元候補の情報を引き継いで分割フォームを生成
+      // まず元のoutfit解析結果から色・季節・スタイルを再取得するためVisionに問い合わせる
+      // → ここでは parsed の warnings に情報が残っていることが多いので、
+      //   parsedから取れる範囲の共通情報を各カテゴリの候補に引き継ぐ
+      const sharedColor = sanitizeArray(parsed?.candidates?.[0]?.color ?? [], ALLOWED_COLOR_VALUES).slice(0, 2);
+      const sharedSeason = sanitizeArray(parsed?.candidates?.[0]?.season ?? [], ALLOWED_SEASON_VALUES);
+      const sharedStyleTags = sanitizeArray(parsed?.candidates?.[0]?.styleTags ?? [], ALLOWED_STYLE_VALUES);
+      const sharedFormality = sanitizeFormality(parsed?.candidates?.[0]?.formality ?? null);
 
-  return NextResponse.json(
-    {
-      error:
-        error instanceof Error
-          ? `画像解析に失敗しました: ${error.message}`
-          : "画像解析に失敗しました",
-    },
-    { status: 500 }
-  );
-}
+      const emptyCandidates: OutfitAnalyzeCandidate[] = splitTargets.map((category, index) => ({
+        candidateId: `cand_${Date.now()}_${index + 1}_${Math.random().toString(36).slice(2, 8)}`,
+        labelIndex: index + 1,
+        sourceType: "split" as SourceType,
+        sourceCandidateId,
+        status: "needs_review" as CandidateStatus,
+        confidence: "low" as CandidateConfidence,
+        needsReview: true,
+        name: null,
+        category: category as AllowedCategory,
+        subCategory: null,
+        color: sourceColor.length > 0 ? sourceColor : sharedColor,
+        season: sourceSeason.length > 0 ? sourceSeason : sharedSeason,
+        styleTags: sourceStyleTags.length > 0 ? sourceStyleTags : sharedStyleTags,
+        formality: sourceFormality ?? sharedFormality,
+        brand: null,
+        memo: null,
+        note: "AIが自動分割できなかったため、カテゴリのみ設定しました。内容を確認してください",
+        reasons: ["ユーザーが手動分割を指定しました"],
+        visibility: {
+          partiallyVisible: false,
+          overlapped: false,
+          ambiguousBoundary: false,
+        },
+        bbox: null,
+      }));
+
+      sanitized.candidates = emptyCandidates;
+      sanitized.summary.detectedCount = emptyCandidates.length;
+      sanitized.summary.needsReviewCount = emptyCandidates.length;
+      sanitized.summary.message = `${emptyCandidates.length}件の候補を生成しました。内容を確認して保存してください。`;
+    }
+
+    return NextResponse.json(sanitized);
+
+  } catch (error) {
+    console.error("POST /api/items/analyze error:", error);
+
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? `画像解析に失敗しました: ${error.message}`
+            : "画像解析に失敗しました",
+      },
+      { status: 500 }
+    );
+  }
 }

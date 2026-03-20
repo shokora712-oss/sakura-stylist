@@ -370,6 +370,74 @@ async function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
+async function cropCandidateImage(
+  imageDataUrl: string,
+  bbox: { x: number; y: number; w: number; h: number }
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const cropX = Math.floor(bbox.x * img.naturalWidth);
+      const cropY = Math.floor(bbox.y * img.naturalHeight);
+      const cropW = Math.floor(bbox.w * img.naturalWidth);
+      const cropH = Math.floor(bbox.h * img.naturalHeight);
+
+      if (cropW <= 0 || cropH <= 0) {
+        resolve(null);
+        return;
+      }
+
+      // 余白を少し足してクロップ（アイテムが端で切れないように）
+      const padding = 0.02;
+      const padX = Math.floor(padding * img.naturalWidth);
+      const padY = Math.floor(padding * img.naturalHeight);
+
+      const finalX = Math.max(0, cropX - padX);
+      const finalY = Math.max(0, cropY - padY);
+      const finalW = Math.min(img.naturalWidth - finalX, cropW + padX * 2);
+      const finalH = Math.min(img.naturalHeight - finalY, cropH + padY * 2);
+
+      canvas.width = finalW;
+      canvas.height = finalH;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(null);
+        return;
+      }
+
+      ctx.drawImage(img, finalX, finalY, finalW, finalH, 0, 0, finalW, finalH);
+      resolve(canvas.toDataURL("image/jpeg", 0.85));
+    };
+    img.onerror = () => resolve(null);
+    img.src = imageDataUrl;
+  });
+}
+
+async function uploadCroppedImage(croppedDataUrl: string): Promise<string | null> {
+  try {
+    const res = await fetch(croppedDataUrl);
+    const blob = await res.blob();
+    const file = new File([blob], `cropped_${Date.now()}.jpg`, { type: "image/jpeg" });
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const uploadRes = await fetch("/api/upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    const json = await uploadRes.json().catch(() => null);
+    if (!uploadRes.ok) return null;
+
+    return json?.imageUrl ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export default function ClosetNewPage() {
   const [mode, setMode] = useState<ClosetMode>("image");
 
@@ -617,30 +685,48 @@ console.log("[closet/new] single analyze dataUrl length:", imageDataUrl.length);
     }
   }
 
-  function mapCandidatesForUi(response: AnalyzeOutfitResponse, imageUrl: string | null) {
-    return response.candidates.map((candidate) => ({
-      candidateId: candidate.candidateId,
-      labelIndex: candidate.labelIndex,
-      selected: true,
-      excluded: false,
-      edited: false,
-      sourceType: candidate.sourceType,
-      sourceCandidateId: candidate.sourceCandidateId,
-      status: candidate.status,
-      confidence: candidate.confidence,
-      needsReview: candidate.needsReview,
-      imageUrl,
-      form: candidateToForm(candidate),
-      ui: {
-        note: candidate.note,
-        reasons: candidate.reasons ?? [],
-        partiallyVisible: candidate.visibility?.partiallyVisible ?? false,
-        overlapped: candidate.visibility?.overlapped ?? false,
-        ambiguousBoundary: candidate.visibility?.ambiguousBoundary ?? false,
-      },
-      bbox: candidate.bbox ?? null,
-    }));
-  }
+async function mapCandidatesForUiWithCrop(
+  response: AnalyzeOutfitResponse,
+  imageDataUrl: string
+): Promise<CandidateFormState[]> {
+  const results = await Promise.all(
+    response.candidates.map(async (candidate, index) => {
+      let croppedImageUrl: string | null = null;
+
+      if (candidate.bbox) {
+        const cropped = await cropCandidateImage(imageDataUrl, candidate.bbox);
+        if (cropped) {
+          croppedImageUrl = await uploadCroppedImage(cropped);
+        }
+      }
+
+      return {
+        candidateId: candidate.candidateId,
+        labelIndex: candidate.labelIndex,
+        selected: true,
+        excluded: false,
+        edited: false,
+        sourceType: candidate.sourceType,
+        sourceCandidateId: candidate.sourceCandidateId,
+        status: candidate.status,
+        confidence: candidate.confidence,
+        needsReview: candidate.needsReview,
+        imageUrl: croppedImageUrl,
+        form: candidateToForm(candidate),
+        ui: {
+          note: candidate.note,
+          reasons: candidate.reasons ?? [],
+          partiallyVisible: candidate.visibility?.partiallyVisible ?? false,
+          overlapped: candidate.visibility?.overlapped ?? false,
+          ambiguousBoundary: candidate.visibility?.ambiguousBoundary ?? false,
+        },
+        bbox: candidate.bbox ?? null,
+      };
+    })
+  );
+
+  return results;
+}
 
   async function handleAnalyzeOutfitPhoto() {
     try {
@@ -692,7 +778,10 @@ console.log("[closet/new] outfit analyze dataUrl length:", imageDataUrl.length);
 
       setOutfitSummaryMessage(json.summary.message);
       setOutfitWarnings(json.warnings ?? []);
-      setCandidates(mapCandidatesForUi(json, outfitUploadedImageUrl));
+      setAnalyzeSuccess("候補を検出しました。アイテム画像を切り取り中...");
+
+      const mappedCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
+      setCandidates(mappedCandidates);
       setAnalyzeSuccess("認識できたアイテム候補を一覧化しました。内容を確認して保存してください。");
     } catch (error) {
       setAnalyzeError(error instanceof Error ? error.message : "コーデ写真の解析に失敗しました");
@@ -825,6 +914,8 @@ console.log("[closet/new] outfit analyze dataUrl length:", imageDataUrl.length);
 
       const imageDataUrl = await fileToDataUrl(outfitFile);
 
+      const sourceCandidate = candidates.find(c => c.candidateId === splitTargetCandidateId);
+
       const res = await fetch("/api/items/analyze", {
         method: "POST",
         headers: {
@@ -835,6 +926,10 @@ console.log("[closet/new] outfit analyze dataUrl length:", imageDataUrl.length);
           imageDataUrl,
           sourceCandidateId: splitTargetCandidateId,
           splitTargets: splitSelectedCategories,
+          sourceColor: sourceCandidate?.form.color ?? [],
+          sourceSeason: sourceCandidate?.form.season ?? [],
+          sourceStyleTags: sourceCandidate?.form.styleTags ?? [],
+          sourceFormality: sourceCandidate?.form.formality ? Number(sourceCandidate.form.formality) : null,
         }),
       });
 
@@ -844,7 +939,7 @@ console.log("[closet/new] outfit analyze dataUrl length:", imageDataUrl.length);
         throw new Error(("error" in json && json.error) || "分割再解析に失敗しました");
       }
 
-      const splitCandidates = mapCandidatesForUi(json, outfitUploadedImageUrl);
+const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
 
       setCandidates((prev) => {
         const nextBase = prev.map((candidate) =>
@@ -932,7 +1027,9 @@ console.log("[closet/new] outfit analyze dataUrl length:", imageDataUrl.length);
       }
 
       const payload = {
-        items: targetCandidates.map((candidate) => formToPayload(candidate.form, uploadedUrl)),
+        items: targetCandidates.map((candidate) =>
+          formToPayload(candidate.form, candidate.imageUrl ?? uploadedUrl)
+        ),
       };
 
       const res = await fetch("/api/items/bulk", {
@@ -1336,18 +1433,6 @@ console.log("[closet/new] outfit analyze dataUrl length:", imageDataUrl.length);
                 </div>
               )}
 
-              <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-600">
-                選択中: <span className="font-semibold text-neutral-900">{selectedBulkCount}</span> 件
-              </div>
-
-              <button
-                type="button"
-                onClick={handleBulkSave}
-                disabled={isSavingBulk || selectedBulkCount === 0}
-                className="w-full rounded-2xl bg-neutral-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-300"
-              >
-                {isSavingBulk ? "一括保存中..." : "選択した候補を保存"}
-              </button>
             </section>
 
             <section className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-neutral-200 sm:p-5">
@@ -1389,8 +1474,10 @@ console.log("[closet/new] outfit analyze dataUrl length:", imageDataUrl.length);
                             </div>
                             <div>
                               <p className="text-sm font-semibold">
-                                {candidate.form.name || candidate.ui.note || "名称未設定"}
-                              </p>
+                                {candidate.form.name
+                                  ? candidate.form.name.replace(/。$/, "").trim()
+                                  : (candidate.ui.note ? candidate.ui.note.replace(/[。.]$/, "").replace(/が(見えます|特徴的です|確認できます).*$/, "").trim() : null) || 
+                                  "名称未設定"}                              </p>
                               <div className="mt-1 flex flex-wrap gap-2 text-xs">
                                 <span className="rounded-full bg-neutral-100 px-2 py-1 text-neutral-700">
                                   {candidate.confidence}
@@ -1709,6 +1796,24 @@ console.log("[closet/new] outfit analyze dataUrl length:", imageDataUrl.length);
                   })}
                 </div>
               )}
+
+              {candidates.length > 0 && (
+                <div className="mt-6 space-y-3">
+                  <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-600">
+                    選択中: <span className="font-semibold text-neutral-900">{selectedBulkCount}</span> 件
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleBulkSave}
+                    disabled={isSavingBulk || selectedBulkCount === 0}
+                    className="w-full rounded-2xl bg-neutral-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-300"
+                  >
+                    {isSavingBulk ? "一括保存中..." : "選択した候補を保存"}
+                  </button>
+                </div>
+              )}
+
             </section>
           </div>
         )}
