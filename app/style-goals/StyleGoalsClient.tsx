@@ -49,9 +49,12 @@ export default function StyleGoalsClient() {
   useEffect(() => {
     async function loadProfile() {
       try {
-        const res = await fetch("/api/profile");
+        const res = await fetch("/api/style-goals");
         const data = await res.json();
-        setCurrentTargetStyle(data?.profile?.targetStyle || null);
+        const activeGoal = Array.isArray(data?.goals)
+          ? data.goals.find((g: { isActive: boolean; targetStyle: string }) => g.isActive)
+          : null;
+        setCurrentTargetStyle(activeGoal?.targetStyle || null);
       } catch (e) {
         console.error(e);
       } finally {
@@ -125,10 +128,15 @@ export default function StyleGoalsClient() {
     setIsSaving(true);
     setMessage(null);
     try {
-      const res = await fetch("/api/profile", {
-        method: "PUT",
+      const res = await fetch("/api/style-goals", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ targetStyle: analyzedBaseStyle }),
+        body: JSON.stringify({
+          targetStyle: analyzedBaseStyle,
+          priority: "high",
+          note: analyzedInspiration ? `inspiration: ${analyzedInspiration}` : null,
+          isActive: true,
+        }),
       });
       if (!res.ok) throw new Error("保存に失敗しました");
       setCurrentTargetStyle(analyzedBaseStyle);
@@ -148,10 +156,15 @@ export default function StyleGoalsClient() {
     setIsSaving(true);
     setMessage(null);
     try {
-      const res = await fetch("/api/profile", {
-        method: "PUT",
+      const res = await fetch("/api/style-goals", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ targetStyle: style }),
+        body: JSON.stringify({
+          targetStyle: style,
+          priority: "medium",
+          note: null,
+          isActive: true,
+        }),
       });
       if (!res.ok) throw new Error("保存に失敗しました");
       setCurrentTargetStyle(style);
