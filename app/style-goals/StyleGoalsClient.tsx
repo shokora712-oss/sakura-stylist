@@ -218,10 +218,13 @@ export default function StyleGoalsClient() {
     setMessage(null);
 
     try {
-      // 全画像をSupabaseにアップロードして各GoalとしてDBに保存
+      // 先に全画像をアップロードしてURLを取得
+      const uploadedUrls = await Promise.all(files.map((file) => uploadFile(file)));
+
+      // URLが取得できたらStyleGoalを保存
       await Promise.all(
         files.map(async (file, index) => {
-          const uploadedUrl = await uploadFile(file);
+          const uploadedUrl = uploadedUrls[index];
           const result = analysisResults[index];
           if (!result) return;
 
