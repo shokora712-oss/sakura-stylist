@@ -54,6 +54,7 @@ export async function POST(request: Request) {
         material: Array.isArray(body.material) ? body.material : [],
         season: Array.isArray(body.season) ? body.season : [],
         styleTags: Array.isArray(body.styleTags) ? body.styleTags : [],
+        inspirationTags: Array.isArray(body.inspirationTags) ? body.inspirationTags : [],
         formality: typeof body.formality === "number" ? body.formality : 3,
         brand: body.brand ?? null,
         imageUrl: body.imageUrl ?? null,

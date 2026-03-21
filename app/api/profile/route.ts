@@ -19,6 +19,7 @@ export async function GET() {
       skeletonType: profile?.skeletonType ?? "",
       personalColor: profile?.personalColor ?? "",
       favoriteStyle: profile?.favoriteStyle ?? "",
+      targetStyle: profile?.targetStyle ?? "",
     },
   });
 }
@@ -37,6 +38,8 @@ export async function PUT(req: Request) {
     typeof body?.personalColor === "string" ? body.personalColor : "";
   const favoriteStyle =
     typeof body?.favoriteStyle === "string" ? body.favoriteStyle : "";
+  const targetStyle =
+    typeof body?.targetStyle === "string" ? body.targetStyle : "";
 
   const profile = await prisma.profile.upsert({
     where: { userId: session.user.id },
@@ -44,12 +47,14 @@ export async function PUT(req: Request) {
       skeletonType: skeletonType || null,
       personalColor: personalColor || null,
       favoriteStyle: favoriteStyle || null,
+      targetStyle: targetStyle || null,
     },
     create: {
       userId: session.user.id,
       skeletonType: skeletonType || null,
       personalColor: personalColor || null,
       favoriteStyle: favoriteStyle || null,
+      targetStyle: targetStyle || null,
     },
   });
 
@@ -59,6 +64,7 @@ export async function PUT(req: Request) {
       skeletonType: profile.skeletonType ?? "",
       personalColor: profile.personalColor ?? "",
       favoriteStyle: profile.favoriteStyle ?? "",
+      targetStyle: profile.targetStyle ?? "",
     },
   });
 }

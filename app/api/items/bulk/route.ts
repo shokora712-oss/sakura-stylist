@@ -11,6 +11,7 @@ type BulkCreateItemInput = {
   material?: string[];
   season?: string[];
   styleTags?: string[];
+  inspirationTags?: string[];
   formality?: number | null;
   brand?: string | null;
   memo?: string | null;
@@ -90,6 +91,7 @@ export async function POST(req: Request) {
       material: normalizeStringArray(item.material),
       season: normalizeStringArray(item.season),
       styleTags: normalizeStringArray(item.styleTags),
+      inspirationTags: normalizeStringArray(item.inspirationTags),
       formality: normalizeNullableNumber(item.formality) ?? 3,
       brand: normalizeNullableString(item.brand),
       memo: normalizeNullableString(item.memo),

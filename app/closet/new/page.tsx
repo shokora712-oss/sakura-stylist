@@ -20,6 +20,7 @@ type FormState = {
   material: string[];
   season: string[];
   styleTags: string[];
+  inspirationTags: string[];
   formality: string;
   brand: string;
   memo: string;
@@ -32,6 +33,7 @@ type AnalyzeSingleResponse = {
   color: string[];
   season: string[];
   styleTags: string[];
+  inspirationTags: string[];
   formality: number | null;
   brand: string | null;
   memo: string | null;
@@ -51,6 +53,7 @@ type AnalyzeCandidate = {
   color: string[];
   season: string[];
   styleTags: string[];
+  inspirationTags: string[];
   formality: number | null;
   brand: string | null;
   memo: string | null;
@@ -233,6 +236,28 @@ const STYLE_LABELS: Record<(typeof STYLE_OPTIONS)[number], string> = {
   office: "オフィス",
 };
 
+const INSPIRATION_OPTIONS = [
+  "korean",
+  "french",
+  "overseas_girl",
+  "city_girl",
+  "japanese_feminine",
+  "balletcore",
+  "old_money",
+  "y2k",
+] as const;
+
+const INSPIRATION_LABELS: Record<(typeof INSPIRATION_OPTIONS)[number], string> = {
+  korean: "韓国系",
+  french: "フレンチ",
+  overseas_girl: "海外ガール",
+  city_girl: "シティガール",
+  japanese_feminine: "日本フェミニン",
+  balletcore: "バレエコア",
+  old_money: "オールドマネー",
+  y2k: "Y2K",
+};
+
 const SPLIT_CATEGORY_OPTIONS: { value: SplitCategory; label: string }[] = [
   { value: "tops", label: "トップス" },
   { value: "bottoms", label: "ボトムス" },
@@ -251,6 +276,7 @@ function emptyForm(): FormState {
     material: [],
     season: [],
     styleTags: [],
+    inspirationTags: [],
     formality: "",
     brand: "",
     memo: "",
@@ -272,6 +298,7 @@ function candidateToForm(candidate: AnalyzeCandidate): FormState {
     material: [],
     season: candidate.season ?? [],
     styleTags: candidate.styleTags ?? [],
+    inspirationTags: candidate.inspirationTags ?? [],
     formality:
       typeof candidate.formality === "number" && Number.isFinite(candidate.formality)
         ? String(candidate.formality)
@@ -290,6 +317,7 @@ function formToPayload(form: FormState, imageUrl: string | null) {
     material: form.material,
     season: form.season,
     styleTags: form.styleTags,
+    inspirationTags: form.inspirationTags,
     formality: form.formality ? Number(form.formality) : null,
     brand: form.brand.trim() || null,
     memo: form.memo.trim() || null,
@@ -523,6 +551,7 @@ export default function ClosetNewPage() {
       color: result.color ?? [],
       season: result.season ?? [],
       styleTags: result.styleTags ?? [],
+      inspirationTags: result.inspirationTags ?? [],
       formality:
         typeof result.formality === "number" && Number.isFinite(result.formality)
           ? String(result.formality)
@@ -802,7 +831,7 @@ console.log("[closet/new] outfit analyze dataUrl length:", imageDataUrl.length);
     });
   }
 
-  function toggleArrayValue(key: "color" | "season" | "styleTags", value: string) {
+  function toggleArrayValue(key: "color" | "season" | "styleTags" | "inspirationTags", value: string) {
     setForm((prev) => {
       const current = prev[key];
       const next = current.includes(value)
@@ -843,7 +872,7 @@ console.log("[closet/new] outfit analyze dataUrl length:", imageDataUrl.length);
 
   function toggleCandidateArrayValue(
     candidateId: string,
-    key: "color" | "season" | "styleTags",
+    key: "color" | "season" | "styleTags" | "inspirationTags",
     value: string
   ) {
     updateCandidate(candidateId, (prev) => {
@@ -929,6 +958,7 @@ console.log("[closet/new] outfit analyze dataUrl length:", imageDataUrl.length);
           sourceColor: sourceCandidate?.form.color ?? [],
           sourceSeason: sourceCandidate?.form.season ?? [],
           sourceStyleTags: sourceCandidate?.form.styleTags ?? [],
+          sourceInspirationTags: sourceCandidate?.form.inspirationTags ?? [],
           sourceFormality: sourceCandidate?.form.formality ? Number(sourceCandidate.form.formality) : null,
         }),
       });
@@ -1303,7 +1333,7 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
                   </div>
                 </div>
 
-                <div className="md:col-span-2">
+<div className="md:col-span-2">
                   <label className="mb-2 block text-sm font-medium">スタイルタグ</label>
                   <div className="flex flex-wrap gap-2">
                     {STYLE_OPTIONS.map((style) => {
@@ -1321,6 +1351,30 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
                           )}
                         >
                           {STYLE_LABELS[style]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="mb-2 block text-sm font-medium">インスピレーション</label>
+                  <div className="flex flex-wrap gap-2">
+                    {INSPIRATION_OPTIONS.map((inspiration) => {
+                      const active = form.inspirationTags.includes(inspiration);
+                      return (
+                        <button
+                          key={inspiration}
+                          type="button"
+                          onClick={() => toggleArrayValue("inspirationTags", inspiration)}
+                          className={classNames(
+                            "rounded-full px-3 py-1.5 text-xs font-medium ring-1 transition",
+                            active
+                              ? "bg-neutral-900 text-white ring-neutral-900"
+                              : "bg-white text-neutral-700 ring-neutral-300 hover:bg-neutral-100"
+                          )}
+                        >
+                          {INSPIRATION_LABELS[inspiration]}
                         </button>
                       );
                     })}
@@ -1688,7 +1742,7 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
                             </div>
                           </div>
 
-                          <div className="md:col-span-2">
+<div className="md:col-span-2">
                             <label className="mb-2 block text-sm font-medium">スタイルタグ</label>
                             <div className="flex flex-wrap gap-2">
                               {STYLE_OPTIONS.map((style) => {
@@ -1713,10 +1767,35 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
                               })}
                             </div>
                           </div>
+
+                          <div className="md:col-span-2">
+                            <label className="mb-2 block text-sm font-medium">インスピレーション</label>
+                            <div className="flex flex-wrap gap-2">
+                              {INSPIRATION_OPTIONS.map((inspiration) => {
+                                const active = candidate.form.inspirationTags.includes(inspiration);
+                                return (
+                                  <button
+                                    key={inspiration}
+                                    type="button"
+                                    onClick={() =>
+                                      toggleCandidateArrayValue(candidate.candidateId, "inspirationTags", inspiration)
+                                    }
+                                    className={classNames(
+                                      "rounded-full px-3 py-1.5 text-xs font-medium ring-1 transition",
+                                      active
+                                        ? "bg-neutral-900 text-white ring-neutral-900"
+                                        : "bg-white text-neutral-700 ring-neutral-300 hover:bg-neutral-100"
+                                    )}
+                                  >
+                                    {INSPIRATION_LABELS[inspiration]}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
                         </div>
 
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          <button
+                        <div className="mt-4 flex flex-wrap gap-2">                          <button
                             type="button"
                             onClick={() => openSplitUi(candidate.candidateId)}
                             className="rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm font-medium hover:bg-neutral-100"
@@ -1944,36 +2023,59 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
                   })}
                 </div>
               </div>
+                <div className="md:col-span-2">
+                  <label className="mb-2 block text-sm font-medium">スタイルタグ</label>
+                  <div className="flex flex-wrap gap-2">
+                    {STYLE_OPTIONS.map((style) => {
+                      const active = form.styleTags.includes(style);
+                      return (
+                        <button
+                          key={style}
+                          type="button"
+                          onClick={() => toggleArrayValue("styleTags", style)}
+                          className={classNames(
+                            "rounded-full px-3 py-1.5 text-xs font-medium ring-1 transition",
+                            active
+                              ? "bg-neutral-900 text-white ring-neutral-900"
+                              : "bg-white text-neutral-700 ring-neutral-300 hover:bg-neutral-100"
+                          )}
+                        >
+                          {STYLE_LABELS[style]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
-              <div className="md:col-span-2">
-                <label className="mb-2 block text-sm font-medium">スタイルタグ</label>
-                <div className="flex flex-wrap gap-2">
-                  {STYLE_OPTIONS.map((style) => {
-                    const active = form.styleTags.includes(style);
-                    return (
-                      <button
-                        key={style}
-                        type="button"
-                        onClick={() => toggleArrayValue("styleTags", style)}
-                        className={classNames(
-                          "rounded-full px-3 py-1.5 text-xs font-medium ring-1 transition",
-                          active
-                            ? "bg-neutral-900 text-white ring-neutral-900"
-                            : "bg-white text-neutral-700 ring-neutral-300 hover:bg-neutral-100"
-                        )}
-                      >
-                        {STYLE_LABELS[style]}
-                      </button>
-                    );
-                  })}
+                <div className="md:col-span-2">
+                  <label className="mb-2 block text-sm font-medium">インスピレーション</label>
+                  <div className="flex flex-wrap gap-2">
+                    {INSPIRATION_OPTIONS.map((inspiration) => {
+                      const active = form.inspirationTags.includes(inspiration);
+                      return (
+                        <button
+                          key={inspiration}
+                          type="button"
+                          onClick={() => toggleArrayValue("inspirationTags", inspiration)}
+                          className={classNames(
+                            "rounded-full px-3 py-1.5 text-xs font-medium ring-1 transition",
+                            active
+                              ? "bg-neutral-900 text-white ring-neutral-900"
+                              : "bg-white text-neutral-700 ring-neutral-300 hover:bg-neutral-100"
+                          )}
+                        >
+                          {INSPIRATION_LABELS[inspiration]}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <button
-              type="button"
-              onClick={handleSaveSingle}
-              disabled={isSavingSingle}
+              <button
+                type="button"
+                onClick={handleSaveSingle}
+                disabled={isSavingSingle}
               className="mt-6 w-full rounded-2xl bg-neutral-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-300"
             >
               {isSavingSingle ? "保存中..." : "保存する"}

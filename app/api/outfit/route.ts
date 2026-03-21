@@ -15,6 +15,7 @@ type OutfitItem = {
   subcategory: string | null;
   colors: string[];
   styles: string[];
+  inspirations: string[];
   seasons: string[];
   formality: number;
   imageUrl: string | null;
@@ -47,6 +48,7 @@ type OutfitResult = {
     versatilityBonus: number;
     favoriteStyleBonus: number;
     targetStyleBonus: number;
+    inspirationBonus: number;
     harmonyPenalty: number;
     styleHarmonyPenalty: number;
   };
@@ -72,6 +74,7 @@ function normalizeItem(item: any): OutfitItem {
     subcategory: item.subCategory ?? null,
     colors: item.color ?? [],
     styles: item.styleTags ?? [],
+    inspirations: item.inspirationTags ?? [],
     seasons: item.season ?? [],
     formality: item.formality ?? 3,
     imageUrl: item.imageUrl ?? null,
@@ -501,6 +504,37 @@ function scoreTargetStyleBonus(items: OutfitItem[], targetStyle: string | null) 
   return 0;
 }
 
+function scoreInspirationBonus(items: OutfitItem[], targetStyle: string | null) {
+  if (!targetStyle) return 0;
+
+  const styleInspirationMap: Record<string, string[]> = {
+    clean: ["korean", "japanese_feminine", "french"],
+    feminine: ["japanese_feminine", "french", "korean", "balletcore"],
+    girly: ["korean", "balletcore", "japanese_feminine"],
+    elegant: ["old_money", "french"],
+    minimal: ["city_girl", "old_money"],
+    casual: ["overseas_girl", "city_girl"],
+    street: ["y2k", "overseas_girl"],
+    mode: ["city_girl", "old_money"],
+    natural: ["french"],
+    sporty: ["y2k", "overseas_girl"],
+  };
+
+  const relatedInspirations = styleInspirationMap[targetStyle] ?? [];
+  if (relatedInspirations.length === 0) return 0;
+
+  let bonus = 0;
+  for (const item of items) {
+    for (const inspiration of item.inspirations ?? []) {
+      if (relatedInspirations.includes(normalizeText(inspiration))) {
+        bonus += 2;
+      }
+    }
+  }
+
+  return Math.min(bonus, 6);
+}
+
 function scoreRewear(items: OutfitItem[]) {
   const simpleColors = ["white", "black", "gray", "beige", "navy", "brown"];
   let versatileCount = 0;
@@ -829,6 +863,7 @@ async function enrichOutfitsWithLlmComments(
                   subcategory: item.subcategory,
                   colors: item.colors,
                   styles: item.styles,
+                  inspirations: item.inspirations,
                   seasons: item.seasons,
                   formality: item.formality,
                 })),
@@ -907,6 +942,11 @@ function buildOutfit(
     styleContext.targetStyle
   );
 
+  const inspirationBonus = scoreInspirationBonus(
+    normalizedItems,
+    styleContext.targetStyle
+  );
+
   const harmonyPenalty = scoreHarmonyPenalty(normalizedItems);
   const styleHarmonyPenalty = scoreStyleHarmonyPenalty(normalizedItems);
 
@@ -918,6 +958,7 @@ function buildOutfit(
     versatilityBonus,
     favoriteStyleBonus,
     targetStyleBonus,
+    inspirationBonus,
     harmonyPenalty,
     styleHarmonyPenalty,
   };
@@ -933,7 +974,8 @@ function buildOutfit(
     moodCohesionBonus +
     versatilityBonus +
     favoriteStyleBonus +
-    targetStyleBonus -
+    targetStyleBonus +
+    inspirationBonus -
     harmonyPenalty -
     styleHarmonyPenalty;
 
@@ -1020,12 +1062,9 @@ function isOfficeSuitLike(items: OutfitItem[]) {
 }
 
 function filterItemsByOccasion(items: OutfitItem[], occasion: string | null) {
-  // office / formal では office専用アイテムも候補に入れてよい
   if (occasion === "office" || occasion === "formal") {
     return items;
   }
-
-  // casual / date / travel では office専用アイテムを候補集合から除外
   return items.filter((item) => !isOfficeWearSubcategory(item));
 }
 
@@ -1082,10 +1121,7 @@ function passesOccasionRule(items: OutfitItem[], occasion: string | null) {
     if (hasSweatBottoms) return false;
     if (hasStreetStyle) return false;
     if (avgFormality < 3.5) return false;
-
-    // フォーマルでも「ザ・スーツ」は除外
     if (officeSuitLike) return false;
-
     return true;
   }
 
@@ -1094,15 +1130,11 @@ function passesOccasionRule(items: OutfitItem[], occasion: string | null) {
     if (hasSweatBottoms) return false;
     if (hasStreetStyle) return false;
     if (avgFormality < 2.5) return false;
-
-    // オフィスでも「ザ・スーツ」は除外
     if (officeSuitLike) return false;
-
     return true;
   }
 
   if (occasion === "casual") {
-    // office専用服は候補生成前に除外する前提だが、保険でここでも落とす
     if (officeWearCount > 0) return false;
     if (avgFormality >= 4.2) return false;
     return true;
@@ -1224,16 +1256,12 @@ function passesStyleConsistencyRule(items: OutfitItem[], occasion: string | null
     );
 
   if (suitLikeUpperLower && shoesAreSneakers) return false;
-
   if (outerOffice && shoesCasual) return false;
   if (bottomOffice && shoesCasual) return false;
-
   if (bagOffice && shoesStreet) return false;
   if (bagOffice && shoesCasual && !shoesOffice) return false;
-
   if (outerOffice && bottomStreet) return false;
   if (outerOffice && bottomIsSweatLike) return false;
-
   if (topFeminine && outerStreet) return false;
   if (topFeminine && bottomStreet) return false;
 
@@ -1371,24 +1399,15 @@ function isTooSimilarOutfit(
   const sameShoes = Boolean(aShoes && bShoes && aShoes === bShoes);
   const sameTops = aTopIds !== "" && aTopIds === bTopIds;
 
-  // ほぼ同じ構成
   if (sameCount >= 4) return true;
-
-  // 同じ outer + bottom はかなり似て見える
   if (sameOuter && sameBottom) return true;
-
-  // 同じトップス + 同じボトムスは、靴違いでもかなり似る
   if (sameTops && sameBottom) return true;
-
-  // 同じトップス + 同じボトムス + 同じ靴 は完全に近い
   if (sameTops && sameBottom && sameShoes) return true;
 
-  // 3アイテム以上被っていて主軸スタイルまで同じなら似すぎ
   if (sameCount >= 3 && aPrimaryStyle && aPrimaryStyle === bPrimaryStyle) {
     return true;
   }
 
-  // 2アイテム被りでも、トップス + ボトムス一致なら十分似ている
   if (sameCount >= 2 && sameTops && sameBottom) {
     return true;
   }
@@ -1415,9 +1434,7 @@ export async function POST(req: Request) {
     const prioritizeVersatility = Boolean(body.prioritizeVersatility ?? false);
 
     const items = await prisma.item.findMany({
-      where: {
-        userId: session.user.id,
-      },
+      where: { userId: session.user.id },
       orderBy: { createdAt: "desc" },
     });
 
@@ -1427,6 +1444,7 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
     const profile = await prisma.profile.findUnique({
       where: { userId: session.user.id },
     });
@@ -1436,9 +1454,7 @@ export async function POST(req: Request) {
         userId: session.user.id,
         isActive: true,
       },
-      orderBy: {
-        updatedAt: "desc",
-      },
+      orderBy: { updatedAt: "desc" },
     });
 
     const styleContext: UserStyleContext = {
@@ -1447,17 +1463,17 @@ export async function POST(req: Request) {
       targetStyle: activeStyleGoal?.targetStyle ?? null,
     };
 
-  const normalizedItems = items.map(normalizeItem);
-  const candidateItems = filterItemsByOccasion(normalizedItems, occasion);
+    const normalizedItems = items.map(normalizeItem);
+    const candidateItems = filterItemsByOccasion(normalizedItems, occasion);
 
-  const tops = candidateItems.filter((item) => item.category === "tops");
-  const bottoms = candidateItems.filter((item) => item.category === "bottoms");
-  const onepieces = candidateItems.filter((item) => item.category === "onepiece");
-  const outers = candidateItems.filter((item) => item.category === "outer");
-  const shoes = candidateItems.filter((item) => item.category === "shoes");
-  const bags = candidateItems.filter(
-    (item) => item.category === "bag" || item.category === "bags"
-  );
+    const tops = candidateItems.filter((item) => item.category === "tops");
+    const bottoms = candidateItems.filter((item) => item.category === "bottoms");
+    const onepieces = candidateItems.filter((item) => item.category === "onepiece");
+    const outers = candidateItems.filter((item) => item.category === "outer");
+    const shoes = candidateItems.filter((item) => item.category === "shoes");
+    const bags = candidateItems.filter(
+      (item) => item.category === "bag" || item.category === "bags"
+    );
 
     const topCombos = buildTopCombos(tops);
 
@@ -1473,84 +1489,20 @@ export async function POST(req: Request) {
           for (const shoe of shoes) {
             if (needsOuterByTemperature(minTemp, maxTemp)) {
               for (const outer of outers) {
-                rawOutfits.push(
-                  buildOutfit(
-                    [fixedItem, bottom, outer, shoe],
-                    styleContext,
-                    occasion,
-                    prioritizeVersatility,
-                    minTemp,
-                    maxTemp,
-                    fixedItem.name
-                  )
-                );
-
+                rawOutfits.push(buildOutfit([fixedItem, bottom, outer, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
                 for (const bag of bags) {
-                  rawOutfits.push(
-                    buildOutfit(
-                      [fixedItem, bottom, outer, shoe, bag],
-                      styleContext,
-                      occasion,
-                      prioritizeVersatility,
-                      minTemp,
-                      maxTemp,
-                      fixedItem.name
-                    )
-                  );
+                  rawOutfits.push(buildOutfit([fixedItem, bottom, outer, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
                 }
               }
             } else {
-              rawOutfits.push(
-                buildOutfit(
-                  [fixedItem, bottom, shoe],
-                  styleContext,
-                  occasion,
-                  prioritizeVersatility,
-                  minTemp,
-                  maxTemp,
-                  fixedItem.name
-                )
-              );
-
+              rawOutfits.push(buildOutfit([fixedItem, bottom, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
               for (const bag of bags) {
-                rawOutfits.push(
-                  buildOutfit(
-                    [fixedItem, bottom, shoe, bag],
-                    styleContext,
-                    occasion,
-                    prioritizeVersatility,
-                    minTemp,
-                    maxTemp,
-                    fixedItem.name
-                  )
-                );
+                rawOutfits.push(buildOutfit([fixedItem, bottom, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
               }
-
               for (const outer of outers) {
-                rawOutfits.push(
-                  buildOutfit(
-                    [fixedItem, bottom, outer, shoe],
-                    styleContext,
-                    occasion,
-                    prioritizeVersatility,
-                    minTemp,
-                    maxTemp,
-                    fixedItem.name
-                  )
-                );
-
+                rawOutfits.push(buildOutfit([fixedItem, bottom, outer, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
                 for (const bag of bags) {
-                  rawOutfits.push(
-                    buildOutfit(
-                      [fixedItem, bottom, outer, shoe, bag],
-                      styleContext,
-                      occasion,
-                      prioritizeVersatility,
-                      minTemp,
-                      maxTemp,
-                      fixedItem.name
-                    )
-                  );
+                  rawOutfits.push(buildOutfit([fixedItem, bottom, outer, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
                 }
               }
             }
@@ -1563,84 +1515,20 @@ export async function POST(req: Request) {
           for (const shoe of shoes) {
             if (needsOuterByTemperature(minTemp, maxTemp)) {
               for (const outer of outers) {
-                rawOutfits.push(
-                  buildOutfit(
-                    [...topCombo, fixedItem, outer, shoe],
-                    styleContext,
-                    occasion,
-                    prioritizeVersatility,
-                    minTemp,
-                    maxTemp,
-                    fixedItem.name ?? undefined
-                  )
-                );
-
+                rawOutfits.push(buildOutfit([...topCombo, fixedItem, outer, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name ?? undefined));
                 for (const bag of bags) {
-                  rawOutfits.push(
-                    buildOutfit(
-                      [...topCombo, fixedItem, outer, shoe, bag],
-                      styleContext,
-                      occasion,
-                      prioritizeVersatility,
-                      minTemp,
-                      maxTemp,
-                      fixedItem.name ?? undefined
-                    )
-                  );
+                  rawOutfits.push(buildOutfit([...topCombo, fixedItem, outer, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name ?? undefined));
                 }
               }
             } else {
-              rawOutfits.push(
-                buildOutfit(
-                  [...topCombo, fixedItem, shoe],
-                  styleContext,
-                  occasion,
-                  prioritizeVersatility,
-                  minTemp,
-                  maxTemp,
-                  fixedItem.name ?? undefined
-                )
-              );
-
+              rawOutfits.push(buildOutfit([...topCombo, fixedItem, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name ?? undefined));
               for (const bag of bags) {
-                rawOutfits.push(
-                  buildOutfit(
-                    [...topCombo, fixedItem, shoe, bag],
-                    styleContext,
-                    occasion,
-                    prioritizeVersatility,
-                    minTemp,
-                    maxTemp,
-                    fixedItem.name ?? undefined
-                  )
-                );
+                rawOutfits.push(buildOutfit([...topCombo, fixedItem, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name ?? undefined));
               }
-
               for (const outer of outers) {
-                rawOutfits.push(
-                  buildOutfit(
-                    [...topCombo, fixedItem, outer, shoe],
-                    styleContext,
-                    occasion,
-                    prioritizeVersatility,
-                    minTemp,
-                    maxTemp,
-                    fixedItem.name ?? undefined
-                  )
-                );
-
+                rawOutfits.push(buildOutfit([...topCombo, fixedItem, outer, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name ?? undefined));
                 for (const bag of bags) {
-                  rawOutfits.push(
-                    buildOutfit(
-                      [...topCombo, fixedItem, outer, shoe, bag],
-                      styleContext,
-                      occasion,
-                      prioritizeVersatility,
-                      minTemp,
-                      maxTemp,
-                      fixedItem.name ?? undefined
-                    )
-                  );
+                  rawOutfits.push(buildOutfit([...topCombo, fixedItem, outer, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name ?? undefined));
                 }
               }
             }
@@ -1652,84 +1540,20 @@ export async function POST(req: Request) {
         for (const shoe of shoes) {
           if (needsOuterByTemperature(minTemp, maxTemp)) {
             for (const outer of outers) {
-              rawOutfits.push(
-                buildOutfit(
-                  [fixedItem, outer, shoe],
-                  styleContext,
-                  occasion,
-                  prioritizeVersatility,
-                  minTemp,
-                  maxTemp,
-                  fixedItem.name
-                )
-              );
-
+              rawOutfits.push(buildOutfit([fixedItem, outer, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
               for (const bag of bags) {
-                rawOutfits.push(
-                  buildOutfit(
-                    [fixedItem, outer, shoe, bag],
-                    styleContext,
-                    occasion,
-                    prioritizeVersatility,
-                    minTemp,
-                    maxTemp,
-                    fixedItem.name
-                  )
-                );
+                rawOutfits.push(buildOutfit([fixedItem, outer, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
               }
             }
           } else {
-            rawOutfits.push(
-              buildOutfit(
-                [fixedItem, shoe],
-                styleContext,
-                occasion,
-                prioritizeVersatility,
-                minTemp,
-                maxTemp,
-                fixedItem.name
-              )
-            );
-
+            rawOutfits.push(buildOutfit([fixedItem, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
             for (const bag of bags) {
-              rawOutfits.push(
-                buildOutfit(
-                  [fixedItem, shoe, bag],
-                  styleContext,
-                  occasion,
-                  prioritizeVersatility,
-                  minTemp,
-                  maxTemp,
-                  fixedItem.name
-                )
-              );
+              rawOutfits.push(buildOutfit([fixedItem, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
             }
-
             for (const outer of outers) {
-              rawOutfits.push(
-                buildOutfit(
-                  [fixedItem, outer, shoe],
-                  styleContext,
-                  occasion,
-                  prioritizeVersatility,
-                  minTemp,
-                  maxTemp,
-                  fixedItem.name
-                )
-              );
-
+              rawOutfits.push(buildOutfit([fixedItem, outer, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
               for (const bag of bags) {
-                rawOutfits.push(
-                  buildOutfit(
-                    [fixedItem, outer, shoe, bag],
-                    styleContext,
-                    occasion,
-                    prioritizeVersatility,
-                    minTemp,
-                    maxTemp,
-                    fixedItem.name
-                  )
-                );
+                rawOutfits.push(buildOutfit([fixedItem, outer, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
               }
             }
           }
@@ -1739,59 +1563,16 @@ export async function POST(req: Request) {
       if (fixedItem.category === "shoes") {
         for (const topCombo of topCombos) {
           for (const bottom of bottoms) {
-            rawOutfits.push(
-              buildOutfit(
-                [...topCombo, bottom, fixedItem],
-                styleContext,
-                occasion,
-                prioritizeVersatility,
-                minTemp,
-                maxTemp,
-                fixedItem.name
-              )
-            );
-
+            rawOutfits.push(buildOutfit([...topCombo, bottom, fixedItem], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
             for (const bag of bags) {
-              rawOutfits.push(
-                buildOutfit(
-                  [...topCombo, bottom, fixedItem, bag],
-                  styleContext,
-                  occasion,
-                  prioritizeVersatility,
-                  minTemp,
-                  maxTemp,
-                  fixedItem.name
-                )
-              );
+              rawOutfits.push(buildOutfit([...topCombo, bottom, fixedItem, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
             }
           }
         }
-
         for (const onepiece of onepieces) {
-          rawOutfits.push(
-            buildOutfit(
-              [onepiece, fixedItem],
-              styleContext,
-              occasion,
-              prioritizeVersatility,
-              minTemp,
-              maxTemp,
-              fixedItem.name
-            )
-          );
-
+          rawOutfits.push(buildOutfit([onepiece, fixedItem], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
           for (const bag of bags) {
-            rawOutfits.push(
-              buildOutfit(
-                [onepiece, fixedItem, bag],
-                styleContext,
-                occasion,
-                prioritizeVersatility,
-                minTemp,
-                maxTemp,
-                fixedItem.name
-              )
-            );
+            rawOutfits.push(buildOutfit([onepiece, fixedItem, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
           }
         }
       }
@@ -1800,34 +1581,13 @@ export async function POST(req: Request) {
         for (const topCombo of topCombos) {
           for (const bottom of bottoms) {
             for (const shoe of shoes) {
-              rawOutfits.push(
-                buildOutfit(
-                  [...topCombo, bottom, shoe, fixedItem],
-                  styleContext,
-                  occasion,
-                  prioritizeVersatility,
-                  minTemp,
-                  maxTemp,
-                  fixedItem.name
-                )
-              );
+              rawOutfits.push(buildOutfit([...topCombo, bottom, shoe, fixedItem], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
             }
           }
         }
-
         for (const onepiece of onepieces) {
           for (const shoe of shoes) {
-            rawOutfits.push(
-              buildOutfit(
-                [onepiece, shoe, fixedItem],
-                styleContext,
-                occasion,
-                prioritizeVersatility,
-                minTemp,
-                maxTemp,
-                fixedItem.name
-              )
-            );
+            rawOutfits.push(buildOutfit([onepiece, shoe, fixedItem], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
           }
         }
       }
@@ -1836,34 +1596,13 @@ export async function POST(req: Request) {
         for (const topCombo of topCombos) {
           for (const bottom of bottoms) {
             for (const shoe of shoes) {
-              rawOutfits.push(
-                buildOutfit(
-                  [...topCombo, bottom, fixedItem, shoe],
-                  styleContext,
-                  occasion,
-                  prioritizeVersatility,
-                  minTemp,
-                  maxTemp,
-                  fixedItem.name
-                )
-              );
+              rawOutfits.push(buildOutfit([...topCombo, bottom, fixedItem, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
             }
           }
         }
-
         for (const onepiece of onepieces) {
           for (const shoe of shoes) {
-            rawOutfits.push(
-              buildOutfit(
-                [onepiece, fixedItem, shoe],
-                styleContext,
-                occasion,
-                prioritizeVersatility,
-                minTemp,
-                maxTemp,
-                fixedItem.name
-              )
-            );
+            rawOutfits.push(buildOutfit([onepiece, fixedItem, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
           }
         }
       }
@@ -1873,78 +1612,20 @@ export async function POST(req: Request) {
           for (const shoe of shoes) {
             if (needsOuterByTemperature(minTemp, maxTemp)) {
               for (const outer of outers) {
-                rawOutfits.push(
-                  buildOutfit(
-                    [...topCombo, bottom, outer, shoe],
-                    styleContext,
-                    occasion,
-                    prioritizeVersatility,
-                    minTemp,
-                    maxTemp
-                  )
-                );
-
+                rawOutfits.push(buildOutfit([...topCombo, bottom, outer, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
                 for (const bag of bags) {
-                  rawOutfits.push(
-                    buildOutfit(
-                      [...topCombo, bottom, outer, shoe, bag],
-                      styleContext,
-                      occasion,
-                      prioritizeVersatility,
-                      minTemp,
-                      maxTemp
-                    )
-                  );
+                  rawOutfits.push(buildOutfit([...topCombo, bottom, outer, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
                 }
               }
             } else {
-              rawOutfits.push(
-                buildOutfit(
-                  [...topCombo, bottom, shoe],
-                  styleContext,
-                  occasion,
-                  prioritizeVersatility,
-                  minTemp,
-                  maxTemp
-                )
-              );
-
+              rawOutfits.push(buildOutfit([...topCombo, bottom, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
               for (const bag of bags) {
-                rawOutfits.push(
-                  buildOutfit(
-                    [...topCombo, bottom, shoe, bag],
-                    styleContext,
-                    occasion,
-                    prioritizeVersatility,
-                    minTemp,
-                    maxTemp
-                  )
-                );
+                rawOutfits.push(buildOutfit([...topCombo, bottom, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
               }
-
               for (const outer of outers) {
-                rawOutfits.push(
-                  buildOutfit(
-                    [...topCombo, bottom, outer, shoe],
-                    styleContext,
-                    occasion,
-                    prioritizeVersatility,
-                    minTemp,
-                    maxTemp
-                  )
-                );
-
+                rawOutfits.push(buildOutfit([...topCombo, bottom, outer, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
                 for (const bag of bags) {
-                  rawOutfits.push(
-                    buildOutfit(
-                      [...topCombo, bottom, outer, shoe, bag],
-                      styleContext,
-                      occasion,
-                      prioritizeVersatility,
-                      minTemp,
-                      maxTemp
-                    )
-                  );
+                  rawOutfits.push(buildOutfit([...topCombo, bottom, outer, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
                 }
               }
             }
@@ -1956,78 +1637,20 @@ export async function POST(req: Request) {
         for (const shoe of shoes) {
           if (needsOuterByTemperature(minTemp, maxTemp)) {
             for (const outer of outers) {
-              rawOutfits.push(
-                buildOutfit(
-                  [onepiece, outer, shoe],
-                  styleContext,
-                  occasion,
-                  prioritizeVersatility,
-                  minTemp,
-                  maxTemp
-                )
-              );
-
+              rawOutfits.push(buildOutfit([onepiece, outer, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
               for (const bag of bags) {
-                rawOutfits.push(
-                  buildOutfit(
-                    [onepiece, outer, shoe, bag],
-                    styleContext,
-                    occasion,
-                    prioritizeVersatility,
-                    minTemp,
-                    maxTemp
-                  )
-                );
+                rawOutfits.push(buildOutfit([onepiece, outer, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
               }
             }
           } else {
-            rawOutfits.push(
-              buildOutfit(
-                [onepiece, shoe],
-                styleContext,
-                occasion,
-                prioritizeVersatility,
-                minTemp,
-                maxTemp
-              )
-            );
-
+            rawOutfits.push(buildOutfit([onepiece, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
             for (const bag of bags) {
-              rawOutfits.push(
-                buildOutfit(
-                  [onepiece, shoe, bag],
-                  styleContext,
-                  occasion,
-                  prioritizeVersatility,
-                  minTemp,
-                  maxTemp
-                )
-              );
+              rawOutfits.push(buildOutfit([onepiece, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
             }
-
             for (const outer of outers) {
-              rawOutfits.push(
-                buildOutfit(
-                  [onepiece, outer, shoe],
-                  styleContext,
-                  occasion,
-                  prioritizeVersatility,
-                  minTemp,
-                  maxTemp
-                )
-              );
-
+              rawOutfits.push(buildOutfit([onepiece, outer, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
               for (const bag of bags) {
-                rawOutfits.push(
-                  buildOutfit(
-                    [onepiece, outer, shoe, bag],
-                    styleContext,
-                    occasion,
-                    prioritizeVersatility,
-                    minTemp,
-                    maxTemp
-                  )
-                );
+                rawOutfits.push(buildOutfit([onepiece, outer, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
               }
             }
           }
@@ -2054,19 +1677,12 @@ export async function POST(req: Request) {
         continue;
       }
 
-      const tooSimilar = selected.some((picked) =>
-        isTooSimilarOutfit(picked, outfit)
-      );
-
+      const tooSimilar = selected.some((picked) => isTooSimilarOutfit(picked, outfit));
       const candidatePrimaryTopId = getPrimaryTopId(outfit);
-
       const samePrimaryTopCount = selected.filter(
         (picked) => getPrimaryTopId(picked) === candidatePrimaryTopId
       ).length;
-
-      // まずはトップスのばらつきを優先
-      const shouldBlockByTopVariety =
-        candidatePrimaryTopId !== null && samePrimaryTopCount >= 1;
+      const shouldBlockByTopVariety = candidatePrimaryTopId !== null && samePrimaryTopCount >= 1;
 
       if (!tooSimilar && !shouldBlockByTopVariety) {
         selected.push(outfit);
@@ -2082,19 +1698,12 @@ export async function POST(req: Request) {
           outfit.items.map((item) => item.id).sort().join("-")
         );
 
-        const tooSimilar = selected.some((picked) =>
-          isTooSimilarOutfit(picked, outfit)
-        );
-
+        const tooSimilar = selected.some((picked) => isTooSimilarOutfit(picked, outfit));
         const candidatePrimaryTopId = getPrimaryTopId(outfit);
-
         const samePrimaryTopCount = selected.filter(
           (picked) => getPrimaryTopId(picked) === candidatePrimaryTopId
         ).length;
-
-        // 補充では少し緩めるけど、同じトップス3連発は防ぐ
-        const shouldBlockByTopVariety =
-          candidatePrimaryTopId !== null && samePrimaryTopCount >= 2;
+        const shouldBlockByTopVariety = candidatePrimaryTopId !== null && samePrimaryTopCount >= 2;
 
         if (!alreadyIncluded && !tooSimilar && !shouldBlockByTopVariety) {
           selected.push(outfit);
