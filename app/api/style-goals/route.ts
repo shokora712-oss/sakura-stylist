@@ -32,6 +32,7 @@ export async function POST(req: Request) {
     typeof body?.priority === "string" ? body.priority.trim() : "";
   const note = typeof body?.note === "string" ? body.note.trim() : "";
   const isActive = Boolean(body?.isActive);
+  const imageUrl = typeof body?.imageUrl === "string" ? body.imageUrl.trim() : null;
 
   if (!targetStyle) {
     return NextResponse.json(
@@ -54,6 +55,7 @@ export async function POST(req: Request) {
       priority: priority || null,
       note: note || null,
       isActive,
+      imageUrl: imageUrl || null,
     },
   });
 
