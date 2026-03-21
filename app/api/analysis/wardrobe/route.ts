@@ -8,12 +8,15 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const STYLE_LABELS: Record<string, string> = {
   casual: "カジュアル",
-  girly: "ガーリー",
-  street: "ストリート",
-  mode: "モード",
-  minimal: "ミニマル",
+  clean: "きれいめ",
   feminine: "フェミニン",
-  office: "オフィス",
+  girly: "ガーリー",
+  simple: "シンプル",
+  natural: "ナチュラル",
+  elegant: "エレガント",
+  mode: "モード",
+  street: "ストリート",
+  sporty: "スポーティ",
 };
 
 const CATEGORY_LABELS: Record<string, string> = {

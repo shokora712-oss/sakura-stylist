@@ -39,6 +39,7 @@ model StyleGoal {
   targetStyle String
   priority    String?  // low / medium / high
   note        String?
+  imageUrl    String?
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

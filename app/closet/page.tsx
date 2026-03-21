@@ -12,6 +12,7 @@ type Item = {
   material: string[];
   season: string[];
   styleTags: string[];
+  inspirationTags: string[];
   formality: number;
   brand: string | null;
   imageUrl: string | null;
@@ -60,12 +61,26 @@ const seasonOptions: Option[] = [
 
 const styleTagOptions: Option[] = [
   { value: "casual", label: "カジュアル" },
-  { value: "girly", label: "ガーリー" },
-  { value: "street", label: "ストリート" },
-  { value: "mode", label: "モード" },
-  { value: "minimal", label: "ミニマル" },
+  { value: "clean", label: "きれいめ" },
   { value: "feminine", label: "フェミニン" },
-  { value: "office", label: "オフィス" },
+  { value: "girly", label: "ガーリー" },
+  { value: "simple", label: "シンプル" },
+  { value: "natural", label: "ナチュラル" },
+  { value: "elegant", label: "エレガント" },
+  { value: "mode", label: "モード" },
+  { value: "street", label: "ストリート" },
+  { value: "sporty", label: "スポーティ" },
+];
+
+const inspirationTagOptions: Option[] = [
+  { value: "korean", label: "韓国系" },
+  { value: "french", label: "フレンチ" },
+  { value: "overseas_girl", label: "海外ガール" },
+  { value: "city_girl", label: "シティガール" },
+  { value: "japanese_feminine", label: "日本フェミニン" },
+  { value: "balletcore", label: "バレエコア" },
+  { value: "old_money", label: "オールドマネー" },
+  { value: "y2k", label: "Y2K" },
 ];
 
 const subCategoryOptionsMap: Record<string, Option[]> = {
@@ -185,6 +200,7 @@ export default function ClosetPage() {
   const [imageUrl, setImageUrl] = useState("");
   const [seasons, setSeasons] = useState<string[]>([]);
   const [styleTags, setStyleTags] = useState<string[]>([]);
+  const [inspirationTags, setInspirationTags] = useState<string[]>([]);
 
   const currentSubCategoryOptions = useMemo(() => {
     return subCategoryOptionsMap[category] ?? [];
@@ -236,6 +252,12 @@ export default function ClosetPage() {
     );
   };
 
+  const toggleInspirationTag = (value: string) => {
+    setInspirationTags((prev) =>
+      prev.includes(value) ? prev.filter((tag) => tag !== value) : [...prev, value]
+    );
+  };
+
   const resetForm = () => {
     setEditingItemId(null);
     setName("");
@@ -246,6 +268,7 @@ export default function ClosetPage() {
     setImageUrl("");
     setSeasons([]);
     setStyleTags([]);
+    setInspirationTags([]);
   };
 
   const handleEdit = (item: Item) => {
@@ -258,6 +281,7 @@ export default function ClosetPage() {
     setImageUrl(item.imageUrl ?? "");
     setSeasons(item.season ?? []);
     setStyleTags(item.styleTags ?? []);
+    setInspirationTags(item.inspirationTags ?? []);
     setMessage(`編集中: ${item.name ?? "名称なし"}`);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -308,6 +332,7 @@ export default function ClosetPage() {
         material: [],
         season: seasons,
         styleTags,
+        inspirationTags,
         formality: calculateFormalityFromStyleTags(styleTags),
         brand: brand || null,
         imageUrl: imageUrl || null,
@@ -547,6 +572,29 @@ export default function ClosetPage() {
                       })}
                     </div>
                   </div>
+                  
+                    <div>
+                      <label className="mb-2 block text-sm font-medium">インスピレーション</label>
+                      <div className="flex flex-wrap gap-2">
+                        {inspirationTagOptions.map((option) => {
+                          const selected = inspirationTags.includes(option.value);
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => toggleInspirationTag(option.value)}
+                              className={`rounded-full border px-3 py-1 text-sm ${
+                                selected
+                                  ? "border-black bg-black text-white"
+                                  : "border-gray-300 bg-white text-black"
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
 
                   <button
                     type="submit"

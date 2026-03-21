@@ -22,6 +22,7 @@ export async function PATCH(req: Request, { params }: Params) {
         material: body.material ?? [],
         season: body.season ?? [],
         styleTags: body.styleTags ?? [],
+        inspirationTags: body.inspirationTags ?? [],
         formality: body.formality ?? 3,
         brand: body.brand ?? null,
         imageUrl: body.imageUrl ?? null,
