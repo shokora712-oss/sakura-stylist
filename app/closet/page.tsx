@@ -216,15 +216,18 @@ export default function ClosetPage() {
     setMessage("");
   }
 
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
   async function handleDelete(id: string) {
-    if (!window.confirm("このアイテムを削除しますか？")) return;
     try {
       const res = await fetch(`/api/items/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("削除に失敗しました");
       setMessage("削除しました");
+      setDeletingId(null);
       await fetchItems();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "削除に失敗しました");
+      setDeletingId(null);
     }
   }
 
@@ -388,7 +391,7 @@ export default function ClosetPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleDelete(item.id)}
+                      onClick={() => setDeletingId(item.id)}
                       className="flex-1 rounded-xl border border-red-100 bg-red-50 py-1.5 text-xs font-medium text-red-600"
                     >
                       削除
@@ -520,6 +523,25 @@ export default function ClosetPage() {
                 更新する
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {deletingId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-xl">
+            <p className="mb-2 text-center font-semibold text-[#605D62]">アイテムを削除しますか？</p>
+            <p className="mb-6 text-center text-sm text-[#605D62]/60">この操作は取り消せません</p>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setDeletingId(null)}
+                className="flex-1 rounded-2xl border border-[#FCE4EC] py-3 text-sm font-medium text-[#605D62]">
+                キャンセル
+              </button>
+              <button type="button" onClick={() => handleDelete(deletingId)}
+                className="flex-1 rounded-2xl bg-red-500 py-3 text-sm font-semibold text-white">
+                削除する
+              </button>
+            </div>
           </div>
         </div>
       )}

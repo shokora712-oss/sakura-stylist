@@ -7,7 +7,7 @@ export default async function Page() {
   const session = await getServerSession(authOptions);
 
   if (!session?.user?.id) {
-    redirect("/login");
+    redirect("/guest");
   }
 
   const userName = session.user.name ?? "ユーザー";
