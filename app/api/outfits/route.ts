@@ -58,8 +58,19 @@ export async function POST(req: Request) {
         temperatureLabel: body.temperatureLabel ?? null,
         isFavorite: typeof body.isFavorite === "boolean" ? body.isFavorite : true,
         imageUrl: body.imageUrl ?? null,
+        detectedItemTags: Array.isArray(body.detectedItemTags) ? body.detectedItemTags : [],
+        detectedStyleTags: Array.isArray(body.detectedStyleTags) ? body.detectedStyleTags : [],
+        detectedColors: Array.isArray(body.detectedColors) ? body.detectedColors : [],
+        ...(body.createdAt ? { createdAt: new Date(body.createdAt) } : {}),
       },
     });
+
+    const itemIds: string[] = Array.isArray(body.itemIds) ? body.itemIds : [];
+    if (itemIds.length > 0) {
+      await prisma.outfitItem.createMany({
+        data: itemIds.map((itemId) => ({ outfitId: outfit.id, itemId })),
+      });
+    }
 
     return NextResponse.json({
       success: true,

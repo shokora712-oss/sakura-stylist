@@ -5,30 +5,10 @@ import BottomNav from "../components/BottomNav";
 import AppHeader from "../components/AppHeader";
 
 const ACTIONS = [
-  {
-    id: "evaluate",
-    label: "コーデ評価",
-    emoji: "⭐",
-    description: "AIがコーデをスコアリング",
-  },
-  {
-    id: "item",
-    label: "アイテム登録",
-    emoji: "👗",
-    description: "クローゼットに追加",
-  },
-  {
-    id: "log",
-    label: "コーデログ",
-    emoji: "📋",
-    description: "今日のコーデを記録",
-  },
-  {
-    id: "style-goal",
-    label: "なりたい系統",
-    emoji: "✨",
-    description: "画像からスタイル判定",
-  },
+  { id: "evaluate", label: "コーデ評価", emoji: "⭐", description: "AIがコーデをスコアリング" },
+  { id: "item", label: "アイテム登録", emoji: "👗", description: "クローゼットに追加" },
+  { id: "log", label: "コーデログ", emoji: "📋", description: "今日のコーデを記録" },
+  { id: "style-goal", label: "なりたい系統", emoji: "✨", description: "画像からスタイル判定" },
 ];
 
 type ActionId = "evaluate" | "item" | "log" | "style-goal";
@@ -55,10 +35,38 @@ type StyleGoalResult = {
   comment: string;
 };
 
+type DetectedItem = {
+  category: string;
+  categoryLabel: string;
+  styleTags: string[];
+  styleTagLabels: string[];
+  colors: string[];
+  colorLabels: string[];
+};
+
+type ClosetItem = {
+  id: string;
+  name: string | null;
+  category: string;
+  imageUrl: string | null;
+};
+
+type LogAnalyzeResult = {
+  items: DetectedItem[];
+  dominantStyle: string | null;
+};
+
+type LogResult = {
+  status: "analyzing" | "confirming" | "saved" | "error";
+  analyzed?: LogAnalyzeResult;
+  confirmedItems?: DetectedItem[];
+  imageUrl?: string | null;
+};
+
 type Results = {
   evaluate?: EvaluateResult | null;
   item?: ItemCandidate[] | null;
-  log?: "saved" | "error" | null;
+  log?: LogResult | null;
   "style-goal"?: StyleGoalResult | null;
 };
 
@@ -66,6 +74,11 @@ const STYLE_LABELS: Record<string, string> = {
   casual: "カジュアル", clean: "きれいめ", feminine: "フェミニン",
   girly: "ガーリー", simple: "シンプル", natural: "ナチュラル",
   elegant: "エレガント", mode: "モード", street: "ストリート", sporty: "スポーティ",
+};
+
+const CATEGORY_LABELS: Record<string, string> = {
+  tops: "トップス", bottoms: "ボトムス", onepiece: "ワンピース",
+  outer: "アウター", shoes: "シューズ", bag: "バッグ",
 };
 
 const OCCASION_OPTIONS = [
@@ -93,14 +106,18 @@ export default function UploadHubPage() {
   const [openAccordions, setOpenAccordions] = useState<Set<ActionId>>(new Set());
   const [message, setMessage] = useState<string | null>(null);
 
-  // コーデ評価用
   const [occasion, setOccasion] = useState("casual");
   const [season, setSeason] = useState("spring");
   const [style, setStyle] = useState("casual");
 
-  // アイテム登録用
   const [savingItemIndex, setSavingItemIndex] = useState<number | null>(null);
   const [savedItems, setSavedItems] = useState<Set<number>>(new Set());
+
+  const [logCheckedItems, setLogCheckedItems] = useState<Set<number>>(new Set());
+  const [isSavingLog, setIsSavingLog] = useState(false);
+  const [closetItems, setClosetItems] = useState<ClosetItem[]>([]);
+  // key: 検出アイテムのindex, value: 選択したclosetItemのid（nullは「新規」）
+  const [matchedItemIds, setMatchedItemIds] = useState<Record<number, string | null>>({});
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -112,6 +129,8 @@ export default function UploadHubPage() {
     setResults({});
     setOpenAccordions(new Set());
     setMessage(null);
+    setLogCheckedItems(new Set());
+    setMatchedItemIds({});
   }
 
   function toggleAction(id: ActionId) {
@@ -147,9 +166,23 @@ export default function UploadHubPage() {
     setResults({});
     setOpenAccordions(new Set(selectedActions));
     setMessage(null);
+    setLogCheckedItems(new Set());
+    setMatchedItemIds({});
 
     const imageDataUrl = await toDataUrl(file);
     const newResults: Results = {};
+
+    // コーデログが選択されてたらクローゼットを先に取得
+    let fetchedClosetItems: ClosetItem[] = closetItems;
+    if (selectedActions.has("log") && closetItems.length === 0) {
+      try {
+        const res = await fetch("/api/items");
+        if (res.ok) {
+          fetchedClosetItems = await res.json();
+          setClosetItems(fetchedClosetItems);
+        }
+      } catch {}
+    }
 
     await Promise.all(
       Array.from(selectedActions).map(async (action) => {
@@ -169,33 +202,32 @@ export default function UploadHubPage() {
             const res = await fetch("/api/items/analyze", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ imageDataUrl, mode: "image" }),
+              body: JSON.stringify({ imageDataUrl, mode: "outfit_photo" }),
             });
             const data = await res.json();
-            newResults.item = res.ok ? (data.candidates ?? data.items ?? []) : null;
+            newResults.item = res.ok ? (data.candidates ?? []) : null;
           }
 
           if (action === "log") {
-            const uploadRes = await fetch("/api/upload", {
-              method: "POST",
-              body: (() => { const fd = new FormData(); fd.append("file", file); return fd; })(),
-            });
+            const fd = new FormData();
+            fd.append("file", file);
+            const uploadRes = await fetch("/api/upload", { method: "POST", body: fd });
             const uploadData = await uploadRes.json();
             const imageUrl = uploadData?.imageUrl ?? null;
 
-            const res = await fetch("/api/outfits", {
+            const analyzeRes = await fetch("/api/outfit-log/analyze", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                imageUrl,
-                isFavorite: false,
-                occasion: null,
-                temperatureLabel: null,
-                score: null,
-                comment: null,
-              }),
+              body: JSON.stringify({ imageDataUrl }),
             });
-            newResults.log = res.ok ? "saved" : "error";
+            const analyzeData = await analyzeRes.json();
+
+            if (analyzeRes.ok && analyzeData.items?.length > 0) {
+              newResults.log = { status: "confirming", analyzed: analyzeData, imageUrl };
+              setLogCheckedItems(new Set(analyzeData.items.map((_: any, i: number) => i)));
+            } else {
+              newResults.log = { status: "confirming", analyzed: { items: [], dominantStyle: null }, imageUrl };
+            }
           }
 
           if (action === "style-goal") {
@@ -207,7 +239,6 @@ export default function UploadHubPage() {
             const data = await res.json();
             if (res.ok && data.baseStyle) {
               newResults["style-goal"] = data;
-              // 自動保存
               await fetch("/api/style-goals", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -223,7 +254,7 @@ export default function UploadHubPage() {
             }
           }
         } catch {
-          if (action === "log") newResults.log = "error";
+          if (action === "log") newResults.log = { status: "error" };
         }
       })
     );
@@ -232,13 +263,63 @@ export default function UploadHubPage() {
     setIsRunning(false);
   }
 
+  async function handleSaveLog() {
+    const logResult = results.log;
+    if (!logResult || logResult.status !== "confirming") return;
+    setIsSavingLog(true);
+
+    try {
+      const allItems = logResult.analyzed?.items ?? [];
+      const confirmedItems = allItems.filter((_, i) => logCheckedItems.has(i));
+
+      const detectedItemTags = confirmedItems.map((item) => item.category);
+      const detectedStyleTags = Array.from(new Set(confirmedItems.flatMap((item) => item.styleTags)));
+      const detectedColors = Array.from(new Set(confirmedItems.flatMap((item) => item.colors)));
+
+      // チェック済みアイテムのうちクローゼットと紐付けたitemIdを収集
+      const itemIds = Object.entries(matchedItemIds)
+        .filter(([i, id]) => logCheckedItems.has(Number(i)) && id !== null)
+        .map(([, id]) => id as string);
+
+      const res = await fetch("/api/outfits", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageUrl: logResult.imageUrl,
+          isFavorite: false,
+          occasion: null,
+          temperatureLabel: null,
+          score: null,
+          comment: null,
+          detectedItemTags,
+          detectedStyleTags,
+          detectedColors,
+          itemIds,
+        }),
+      });
+
+      if (!res.ok) throw new Error();
+
+      setResults((prev) => ({
+        ...prev,
+        log: { ...logResult, status: "saved", confirmedItems },
+      }));
+    } catch {
+      setResults((prev) => ({
+        ...prev,
+        log: { ...logResult, status: "error" },
+      }));
+    } finally {
+      setIsSavingLog(false);
+    }
+  }
+
   async function handleSaveItem(candidate: ItemCandidate, index: number) {
     setSavingItemIndex(index);
     try {
-      const uploadRes = await fetch("/api/upload", {
-        method: "POST",
-        body: (() => { const fd = new FormData(); fd.append("file", file!); return fd; })(),
-      });
+      const fd = new FormData();
+      fd.append("file", file!);
+      const uploadRes = await fetch("/api/upload", { method: "POST", body: fd });
       const uploadData = await uploadRes.json();
       const imageUrl = uploadData?.imageUrl ?? null;
 
@@ -261,16 +342,10 @@ export default function UploadHubPage() {
   return (
     <main className="min-h-screen bg-[#fdf2f6] pb-32 text-[#605D62]">
       <div className="mx-auto max-w-md px-4 py-6">
-        <AppHeader
-          title="画像をアップロード"
-          description="1枚の画像で複数の操作を一括実行"
-        />
+        <AppHeader title="画像をアップロード" description="1枚の画像で複数の操作を一括実行" />
 
-        {/* 画像アップロード */}
-        <div
-          onClick={() => fileInputRef.current?.click()}
-          className="mb-5 cursor-pointer overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-[#FCE4EC] transition hover:shadow-md"
-        >
+        <div onClick={() => fileInputRef.current?.click()}
+          className="mb-5 cursor-pointer overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-[#FCE4EC] transition hover:shadow-md">
           {previewUrl ? (
             <div className="relative">
               <img src={previewUrl} alt="preview" className="h-56 w-full object-cover" />
@@ -288,83 +363,76 @@ export default function UploadHubPage() {
         </div>
         <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
 
-        {/* やりたいことを選ぶ */}
         <div className="mb-5 space-y-3">
-            <p className="text-sm font-semibold">やりたいことを選ぶ（複数可）</p>
-            {ACTIONS.map((action) => {
-              const selected = selectedActions.has(action.id as ActionId);
-              return (
-                <button key={action.id} type="button"
-                  onClick={() => toggleAction(action.id as ActionId)}
-                  className={`flex w-full items-center gap-4 rounded-2xl p-4 text-left transition ${
-                    selected
-                      ? "bg-[#605D62] text-white shadow-md"
-                      : "bg-white text-[#605D62] ring-1 ring-[#FCE4EC]"
-                  }`}>
-                  <span className="text-2xl">{action.emoji}</span>
-                  <div>
-                    <p className="font-semibold">{action.label}</p>
-                    <p className={`text-xs ${selected ? "text-white/70" : "text-[#605D62]/60"}`}>
-                      {action.description}
-                    </p>
-                  </div>
-                  <div className={`ml-auto flex h-6 w-6 items-center justify-center rounded-full border-2 ${
-                    selected ? "border-white bg-white" : "border-[#FCE4EC]"
-                  }`}>
-                    {selected && <span className="text-xs font-bold text-[#605D62]">✓</span>}
-                  </div>
-                </button>
-              );
-            })}
+          <p className="text-sm font-semibold">やりたいことを選ぶ（複数可）</p>
+          {ACTIONS.map((action) => {
+            const selected = selectedActions.has(action.id as ActionId);
+            return (
+              <button key={action.id} type="button"
+                onClick={() => toggleAction(action.id as ActionId)}
+                className={`flex w-full items-center gap-4 rounded-2xl p-4 text-left transition ${
+                  selected ? "bg-[#605D62] text-white shadow-md" : "bg-white text-[#605D62] ring-1 ring-[#FCE4EC]"
+                }`}>
+                <span className="text-2xl">{action.emoji}</span>
+                <div>
+                  <p className="font-semibold">{action.label}</p>
+                  <p className={`text-xs ${selected ? "text-white/70" : "text-[#605D62]/60"}`}>
+                    {action.description}
+                  </p>
+                </div>
+                <div className={`ml-auto flex h-6 w-6 items-center justify-center rounded-full border-2 ${
+                  selected ? "border-white bg-white" : "border-[#FCE4EC]"
+                }`}>
+                  {selected && <span className="text-xs font-bold text-[#605D62]">✓</span>}
+                </div>
+              </button>
+            );
+          })}
 
-            {/* コーデ評価の条件 */}
-            {selectedActions.has("evaluate") && (
-              <div className="rounded-2xl bg-white p-4 ring-1 ring-[#FCE4EC]">
-                <p className="mb-3 text-xs font-semibold text-[#605D62]/60">コーデ評価の条件</p>
-                <div className="space-y-3">
-                  <div>
-                    <p className="mb-1.5 text-xs font-medium">シチュエーション</p>
-                    <div className="flex flex-wrap gap-2">
-                      {OCCASION_OPTIONS.map((opt) => (
-                        <button key={opt.value} type="button" onClick={() => setOccasion(opt.value)}
-                          className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                            occasion === opt.value ? "bg-[#605D62] text-white" : "bg-[#fdf2f6] text-[#605D62]"
-                          }`}>
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
+          {selectedActions.has("evaluate") && (
+            <div className="rounded-2xl bg-white p-4 ring-1 ring-[#FCE4EC]">
+              <p className="mb-3 text-xs font-semibold text-[#605D62]/60">コーデ評価の条件</p>
+              <div className="space-y-3">
+                <div>
+                  <p className="mb-1.5 text-xs font-medium">シチュエーション</p>
+                  <div className="flex flex-wrap gap-2">
+                    {OCCASION_OPTIONS.map((opt) => (
+                      <button key={opt.value} type="button" onClick={() => setOccasion(opt.value)}
+                        className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                          occasion === opt.value ? "bg-[#605D62] text-white" : "bg-[#fdf2f6] text-[#605D62]"
+                        }`}>
+                        {opt.label}
+                      </button>
+                    ))}
                   </div>
-                  <div>
-                    <p className="mb-1.5 text-xs font-medium">季節</p>
-                    <div className="flex flex-wrap gap-2">
-                      {SEASON_OPTIONS.map((opt) => (
-                        <button key={opt.value} type="button" onClick={() => setSeason(opt.value)}
-                          className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                            season === opt.value ? "bg-[#605D62] text-white" : "bg-[#fdf2f6] text-[#605D62]"
-                          }`}>
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
+                </div>
+                <div>
+                  <p className="mb-1.5 text-xs font-medium">季節</p>
+                  <div className="flex flex-wrap gap-2">
+                    {SEASON_OPTIONS.map((opt) => (
+                      <button key={opt.value} type="button" onClick={() => setSeason(opt.value)}
+                        className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                          season === opt.value ? "bg-[#605D62] text-white" : "bg-[#fdf2f6] text-[#605D62]"
+                        }`}>
+                        {opt.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* 実行ボタン */}
-            <button type="button" onClick={handleRun} disabled={!canRun}
-              className="w-full rounded-2xl bg-gradient-to-r from-[#FCE4EC] to-[#E3F2FD] py-4 text-sm font-bold text-[#605D62] shadow-sm transition disabled:opacity-40">
-              {isRunning ? "実行中..." : !file ? "先に画像を選択してください" : `${selectedActions.size}つの操作を実行する`}
-            </button>
-          </div>
+          <button type="button" onClick={handleRun} disabled={!canRun}
+            className="w-full rounded-2xl bg-gradient-to-r from-[#FCE4EC] to-[#E3F2FD] py-4 text-sm font-bold text-[#605D62] shadow-sm transition disabled:opacity-40">
+            {isRunning ? "実行中..." : !file ? "先に画像を選択してください" : `${selectedActions.size}つの操作を実行する`}
+          </button>
+        </div>
 
-        {/* 結果 */}
         {hasResults && (
           <div className="space-y-3">
             <p className="text-sm font-semibold">結果</p>
 
-            {/* コーデ評価 */}
             {results.evaluate !== undefined && (
               <div className="rounded-2xl bg-white ring-1 ring-[#FCE4EC]">
                 <button type="button" onClick={() => toggleAccordion("evaluate")}
@@ -416,7 +484,6 @@ export default function UploadHubPage() {
               </div>
             )}
 
-            {/* アイテム登録 */}
             {results.item !== undefined && (
               <div className="rounded-2xl bg-white ring-1 ring-[#FCE4EC]">
                 <button type="button" onClick={() => toggleAccordion("item")}
@@ -443,13 +510,14 @@ export default function UploadHubPage() {
                             <div className="mb-2 flex items-center justify-between">
                               <div>
                                 <p className="font-semibold">{candidate.name}</p>
-                                <p className="text-xs text-[#605D62]/60">{candidate.category} / {candidate.subCategory}</p>
+                                <p className="text-xs text-[#605D62]/60">
+                                  {CATEGORY_LABELS[candidate.category] ?? candidate.category}
+                                </p>
                               </div>
                               {savedItems.has(i) ? (
                                 <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-600">保存済み</span>
                               ) : (
-                                <button type="button"
-                                  onClick={() => handleSaveItem(candidate, i)}
+                                <button type="button" onClick={() => handleSaveItem(candidate, i)}
                                   disabled={savingItemIndex === i}
                                   className="rounded-full bg-[#605D62] px-3 py-1 text-xs font-medium text-white disabled:opacity-50">
                                   {savingItemIndex === i ? "保存中..." : "保存する"}
@@ -476,7 +544,6 @@ export default function UploadHubPage() {
               </div>
             )}
 
-            {/* コーデログ */}
             {results.log !== undefined && (
               <div className="rounded-2xl bg-white ring-1 ring-[#FCE4EC]">
                 <button type="button" onClick={() => toggleAccordion("log")}
@@ -484,21 +551,132 @@ export default function UploadHubPage() {
                   <div className="flex items-center gap-2">
                     <span>📋</span>
                     <span className="font-semibold">コーデログ</span>
-                    <span className={`rounded-full px-2 py-0.5 text-xs ${
-                      results.log === "saved" ? "bg-emerald-100 text-emerald-600" : "bg-red-100 text-red-500"
-                    }`}>
-                      {results.log === "saved" ? "保存済み" : "エラー"}
-                    </span>
+                    {results.log?.status === "saved" && (
+                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-600">保存済み</span>
+                    )}
+                    {results.log?.status === "confirming" && (
+                      <span className="rounded-full bg-[#FCE4EC] px-2 py-0.5 text-xs text-[#605D62]">確認中</span>
+                    )}
+                    {results.log?.status === "error" && (
+                      <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-500">エラー</span>
+                    )}
                   </div>
                   <span className="text-sm text-[#605D62]/40">
                     {openAccordions.has("log") ? "▲" : "▼"}
                   </span>
                 </button>
+
                 {openAccordions.has("log") && (
                   <div className="border-t border-[#FCE4EC] p-4">
-                    {results.log === "saved" ? (
-                      <p className="text-sm text-emerald-600">✓ コーデログに保存しました！</p>
-                    ) : (
+                    {results.log?.status === "confirming" && results.log.analyzed && (
+                      <div className="space-y-3">
+                        <p className="text-xs font-semibold text-[#605D62]">AIが検出したアイテムを確認してください</p>
+                        <p className="text-xs text-[#605D62]/60">チェックを入れて、クローゼットの同じアイテムを選んでください</p>
+
+                        {results.log.analyzed.items.length > 0 ? (
+                          <div className="space-y-4">
+                            {results.log.analyzed.items.map((item, i) => {
+                              const candidates = closetItems.filter((c) => c.category === item.category);
+                              const isChecked = logCheckedItems.has(i);
+                              const selectedId = matchedItemIds[i];
+
+                              return (
+                                <div key={i} className={`rounded-xl p-3 transition ${isChecked ? "bg-[#fdf2f6]" : "bg-white ring-1 ring-[#FCE4EC] opacity-50"}`}>
+                                  <button type="button"
+                                    onClick={() => setLogCheckedItems((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(i)) next.delete(i);
+                                      else next.add(i);
+                                      return next;
+                                    })}
+                                    className="flex w-full items-center gap-3 text-left">
+                                    <div className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${
+                                      isChecked ? "border-[#605D62] bg-[#605D62]" : "border-[#FCE4EC]"
+                                    }`}>
+                                      {isChecked && <span className="text-xs font-bold text-white">✓</span>}
+                                    </div>
+                                    <div>
+                                      <p className="text-sm font-semibold text-[#605D62]">{item.categoryLabel}</p>
+                                      <div className="mt-0.5 flex flex-wrap gap-1">
+                                        {item.colorLabels.map((c) => (
+                                          <span key={c} className="text-xs text-[#605D62]/60">{c}</span>
+                                        ))}
+                                        {item.styleTagLabels.map((s) => (
+                                          <span key={s} className="rounded-full bg-[#E3F2FD] px-1.5 py-0.5 text-xs text-[#605D62]">{s}</span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </button>
+
+                                  {isChecked && candidates.length > 0 && (
+                                    <div className="mt-3">
+                                      <p className="mb-2 text-xs text-[#605D62]/60">クローゼットの同じアイテムは？</p>
+                                      <div className="flex gap-2 overflow-x-auto pb-1">
+                                        <button type="button"
+                                          onClick={() => setMatchedItemIds((prev) => ({ ...prev, [i]: null }))}
+                                          className={`shrink-0 rounded-xl px-3 py-2 text-xs font-medium transition ${
+                                            selectedId === null && i in matchedItemIds
+                                              ? "bg-[#605D62] text-white"
+                                              : "bg-white ring-1 ring-[#FCE4EC] text-[#605D62]"
+                                          }`}>
+                                          新規アイテム
+                                        </button>
+                                        {candidates.map((c) => (
+                                          <button key={c.id} type="button"
+                                            onClick={() => setMatchedItemIds((prev) => ({ ...prev, [i]: c.id }))}
+                                            className={`shrink-0 rounded-xl transition ${
+                                              selectedId === c.id
+                                                ? "ring-2 ring-[#605D62]"
+                                                : "ring-1 ring-[#FCE4EC]"
+                                            }`}>
+                                            <div className="h-16 w-16 overflow-hidden rounded-xl">
+                                              {c.imageUrl ? (
+                                                <img src={c.imageUrl} alt={c.name ?? ""} className="h-full w-full object-cover" />
+                                              ) : (
+                                                <div className="flex h-full w-full items-center justify-center bg-[#fdf2f6] text-[10px] text-[#605D62]/40">
+                                                  {CATEGORY_LABELS[c.category] ?? c.category}
+                                                </div>
+                                              )}
+                                            </div>
+                                            <p className="mt-0.5 w-16 truncate px-0.5 text-center text-[10px] text-[#605D62]/70">
+                                              {c.name ?? CATEGORY_LABELS[c.category]}
+                                            </p>
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-[#605D62]/60">アイテムを検出できませんでした。このまま保存できます。</p>
+                        )}
+
+                        <button type="button" onClick={handleSaveLog} disabled={isSavingLog}
+                          className="w-full rounded-xl bg-[#605D62] py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+                          {isSavingLog ? "保存中..." : "このまま保存する"}
+                        </button>
+                      </div>
+                    )}
+
+                    {results.log?.status === "saved" && (
+                      <div className="space-y-2">
+                        <p className="text-sm text-emerald-600">✓ コーデログに保存しました！</p>
+                        {results.log.confirmedItems && results.log.confirmedItems.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {results.log.confirmedItems.map((item, i) => (
+                              <span key={i} className="rounded-full bg-[#FCE4EC] px-2 py-0.5 text-xs text-[#605D62]">
+                                {item.categoryLabel}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {results.log?.status === "error" && (
                       <p className="text-sm text-red-500">保存に失敗しました</p>
                     )}
                   </div>
@@ -506,7 +684,6 @@ export default function UploadHubPage() {
               </div>
             )}
 
-            {/* なりたい系統 */}
             {results["style-goal"] !== undefined && (
               <div className="rounded-2xl bg-white ring-1 ring-[#FCE4EC]">
                 <button type="button" onClick={() => toggleAccordion("style-goal")}

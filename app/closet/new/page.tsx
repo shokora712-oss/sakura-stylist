@@ -135,6 +135,7 @@ const SUBCATEGORY_OPTIONS: Record<Category, { value: string; label: string }[]> 
     { value: "hoodie", label: "パーカー" },
     { value: "cardigan", label: "カーディガン" },
     { value: "sweat", label: "スウェット" },
+    { value: "vest", label: "ベスト" },
     { value: "office_shirt", label: "オフィスシャツ" },
   ],
   bottoms: [
@@ -218,22 +219,28 @@ const SEASON_LABELS: Record<(typeof SEASON_OPTIONS)[number], string> = {
 
 const STYLE_OPTIONS = [
   "casual",
-  "girly",
-  "street",
-  "mode",
-  "minimal",
+  "clean",
   "feminine",
-  "office",
+  "girly",
+  "simple",
+  "natural",
+  "elegant",
+  "mode",
+  "street",
+  "sporty",
 ] as const;
 
 const STYLE_LABELS: Record<(typeof STYLE_OPTIONS)[number], string> = {
   casual: "カジュアル",
-  girly: "ガーリー",
-  street: "ストリート",
-  mode: "モード",
-  minimal: "ミニマル",
+  clean: "きれいめ",
   feminine: "フェミニン",
-  office: "オフィス",
+  girly: "ガーリー",
+  simple: "シンプル",
+  natural: "ナチュラル",
+  elegant: "エレガント",
+  mode: "モード",
+  street: "ストリート",
+  sporty: "スポーティ",
 };
 
 const INSPIRATION_OPTIONS = [

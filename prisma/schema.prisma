@@ -69,6 +69,7 @@ model Item {
   user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  outfitItems OutfitItem[]
 }
 
 model Outfit {
@@ -86,11 +87,26 @@ model Outfit {
   temperatureLabel String?
   occasion         String?
   imageUrl         String?
+  detectedItemTags  String[]
+  detectedStyleTags String[]
+  detectedColors    String[]
   createdAt        DateTime @default(now())
 
   user             User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  outfitItems      OutfitItem[]
 
   @@index([userId])
+}
+
+model OutfitItem {
+  id       String @id @default(cuid())
+  outfitId String
+  itemId   String
+  outfit   Outfit @relation(fields: [outfitId], references: [id], onDelete: Cascade)
+  item     Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([outfitId])
+  @@index([itemId])
 }
 
 model Account {
