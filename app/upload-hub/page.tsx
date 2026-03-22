@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import BottomNav from "../components/BottomNav";
+import AppHeader from "../components/AppHeader";
 
 const ACTIONS = [
   {
@@ -260,11 +261,10 @@ export default function UploadHubPage() {
   return (
     <main className="min-h-screen bg-[#fdf2f6] pb-32 text-[#605D62]">
       <div className="mx-auto max-w-md px-4 py-6">
-        <div className="mb-6">
-          <p className="text-xs text-[#605D62]/60">Closet AI</p>
-          <h1 className="text-2xl font-bold">画像をアップロード</h1>
-          <p className="mt-1 text-sm text-[#605D62]/60">1枚の画像で複数の操作を一括実行</p>
-        </div>
+        <AppHeader
+          title="画像をアップロード"
+          description="1枚の画像で複数の操作を一括実行"
+        />
 
         {/* 画像アップロード */}
         <div
@@ -289,8 +289,7 @@ export default function UploadHubPage() {
         <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
 
         {/* やりたいことを選ぶ */}
-        {file && (
-          <div className="mb-5 space-y-3">
+        <div className="mb-5 space-y-3">
             <p className="text-sm font-semibold">やりたいことを選ぶ（複数可）</p>
             {ACTIONS.map((action) => {
               const selected = selectedActions.has(action.id as ActionId);
@@ -356,10 +355,9 @@ export default function UploadHubPage() {
             {/* 実行ボタン */}
             <button type="button" onClick={handleRun} disabled={!canRun}
               className="w-full rounded-2xl bg-gradient-to-r from-[#FCE4EC] to-[#E3F2FD] py-4 text-sm font-bold text-[#605D62] shadow-sm transition disabled:opacity-40">
-              {isRunning ? "実行中..." : `${selectedActions.size}つの操作を実行する`}
+              {isRunning ? "実行中..." : !file ? "先に画像を選択してください" : `${selectedActions.size}つの操作を実行する`}
             </button>
           </div>
-        )}
 
         {/* 結果 */}
         {hasResults && (

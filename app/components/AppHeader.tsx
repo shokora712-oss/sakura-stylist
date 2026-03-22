@@ -4,26 +4,15 @@ type Props = {
   description?: string;
 };
 
-export default function AppHeader({
-  userName,
-  title,
-  description,
-}: Props) {
+export default function AppHeader({ userName, title, description }: Props) {
   return (
     <div className="mb-6">
-      {/* 小：ブランド */}
-      <p className="text-xs text-gray-400">Sakura Stylist</p>
-
-      {/* 大：タイトル */}
-      <h1 className="text-2xl font-bold text-[#0b2341] mt-1">
-        {title}
-      </h1>
-
-      {/* 小：説明 */}
+      <p className="text-xs text-[#605D62]/60">
+        {userName ? `こんにちは、${userName}さん` : "Sakura Stylist"}
+      </p>
+      <h1 className="mt-1 text-2xl font-bold text-[#605D62]">{title}</h1>
       {description && (
-        <p className="text-sm text-gray-500 mt-1">
-          {description}
-        </p>
+        <p className="mt-1 text-sm text-[#605D62]/60">{description}</p>
       )}
     </div>
   );
