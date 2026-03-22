@@ -417,15 +417,31 @@ async function buildEvaluation(params: {
     colorCount >= 5 ? "色数を少し絞るとまとまりやすい" : "小物でアクセントを足しても◎",
   ];
 
+  // LLMコメント生成
+  const llmComment = await buildEvaluateCommentWithLlm({
+    occasion,
+    season,
+    style,
+    totalScore,
+    colorScore,
+    silhouetteScore,
+    seasonScore,
+    occasionScore,
+    analysis,
+    fallbackSummary: summary,
+    fallbackGoodPoints: goodPoints,
+    fallbackImprovementPoints: improvementPoints,
+  });
+
   return {
     totalScore,
     colorScore,
     silhouetteScore,
     seasonScore,
     occasionScore,
-    summary,
-    goodPoints,
-    improvementPoints,
+    summary: llmComment?.summary ?? summary,
+    goodPoints: llmComment?.goodPoints ?? goodPoints,
+    improvementPoints: llmComment?.improvementPoints ?? improvementPoints,
     breakdown,
   };
 }

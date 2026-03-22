@@ -85,6 +85,7 @@ model Outfit {
   isFavorite       Boolean  @default(true)
   temperatureLabel String?
   occasion         String?
+  imageUrl         String?
   createdAt        DateTime @default(now())
 
   user             User?    @relation(fields: [userId], references: [id], onDelete: Cascade)

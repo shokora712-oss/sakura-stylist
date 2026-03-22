@@ -7,88 +7,86 @@ type HomeClientProps = {
   userName: string;
 };
 
-type HomeCardProps = {
-  title: string;
-  description?: string;
-  href: string;
-  wide?: boolean;
-};
-
-function HomeCard({ title, description, href, wide = false }: HomeCardProps) {
-  return (
-    <Link
-      href={href}
-      className={`rounded-3xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
-        wide ? "col-span-2" : ""
-      }`}
-    >
-      <div className="min-h-[120px]">
-        <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
-        {description && (
-          <p className="mt-2 text-sm leading-6 text-gray-500">{description}</p>
-        )}
-      </div>
-    </Link>
-  );
-}
-
 export default function HomeClient({ userName }: HomeClientProps) {
+  const hour = new Date().getHours();
+  const greeting =
+    hour < 12 ? "おはようございます" : hour < 18 ? "こんにちは" : "こんばんは";
+
   return (
-    <main className="min-h-screen bg-[#fafafa] pb-32">
-      <div className="mx-auto flex max-w-md flex-col px-5 pt-8">
-        <div className="mb-8">
-          <p className="text-sm text-gray-500">こんにちは、{userName}</p>
-          <h1 className="mt-2 text-3xl font-bold text-gray-900">Sakura Stylist</h1>
-          <p className="mt-2 text-sm leading-6 text-gray-500">
-            今日のコーデ提案から、クローゼット管理までこれ一つで。
-          </p>
+    <main className="min-h-screen bg-[#fdf2f6] pb-32 text-[#605D62]">
+      <div className="mx-auto max-w-md px-4 pt-8">
+
+        {/* グリーティング */}
+        <div className="mb-6">
+          <p className="text-sm text-[#605D62]/60">{greeting}、{userName}さん</p>
+          <h1 className="mt-1 text-2xl font-bold text-[#605D62]">Sakura Stylist</h1>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <HomeCard
-            title="コーデ提案"
-            description="AIが手持ち服から提案"
-            href="/outfit"
-          />
+        {/* 今日のコーデピック */}
+        <Link href="/outfit"
+          className="mb-5 block overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-[#FCE4EC] transition hover:shadow-md">
+          <div className="bg-gradient-to-r from-[#FCE4EC] to-[#E3F2FD] px-5 py-4">
+            <p className="text-xs font-medium text-[#605D62]/60">今日のおすすめ</p>
+            <h2 className="mt-0.5 text-lg font-bold text-[#605D62]">今日のコーデを提案してもらう</h2>
+            <p className="mt-1 text-xs text-[#605D62]/70">AIが手持ち服から最適なコーデを提案します</p>
+          </div>
+          <div className="flex items-center justify-between px-5 py-3">
+            <span className="text-xs text-[#605D62]/50">タップして提案を見る</span>
+            <span className="text-[#605D62]/40">→</span>
+          </div>
+        </Link>
 
-          <HomeCard
-            title="コーデ評価"
-            description="AIがコーデを評価"
-            href="/evaluate"
-          />
+        {/* クイックアクション */}
+        <div className="mb-5 grid grid-cols-3 gap-3">
+          <Link href="/closet/new"
+            className="flex flex-col items-center gap-2 rounded-2xl bg-white py-4 shadow-sm ring-1 ring-[#FCE4EC] transition hover:shadow-md">
+            <span className="text-2xl">＋</span>
+            <span className="text-xs font-medium text-[#605D62]">登録</span>
+          </Link>
+          <Link href="/outfit"
+            className="flex flex-col items-center gap-2 rounded-2xl bg-white py-4 shadow-sm ring-1 ring-[#FCE4EC] transition hover:shadow-md">
+            <span className="text-2xl">👗</span>
+            <span className="text-xs font-medium text-[#605D62]">提案</span>
+          </Link>
+          <Link href="/closet"
+            className="flex flex-col items-center gap-2 rounded-2xl bg-white py-4 shadow-sm ring-1 ring-[#FCE4EC] transition hover:shadow-md">
+            <span className="text-2xl">👚</span>
+            <span className="text-xs font-medium text-[#605D62]">クローゼット</span>
+          </Link>
+        </div>
 
-          <HomeCard
-            title="クローゼット"
-            description="登録済みアイテムを見る"
-            href="/closet"
-            wide
-          />
+        {/* 機能カード */}
+        <h2 className="mb-3 text-sm font-semibold text-[#605D62]/60">機能一覧</h2>
+        <div className="grid grid-cols-2 gap-3">
 
-          <HomeCard
-            title="コーデログ"
-            description="お気に入りや履歴を確認"
-            href="/logs"
-            wide
-          />
+          <Link href="/analysis"
+            className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[#FCE4EC] transition hover:shadow-md">
+            <div className="mb-2 text-2xl">🔍</div>
+            <p className="font-semibold text-[#605D62]">買い足すべきアイテム</p>
+            <p className="mt-1 text-xs text-[#605D62]/60">不足カテゴリを分析</p>
+          </Link>
 
-          <HomeCard
-            title="なりたい系統を登録"
-            description="画像・URLで登録"
-            href="/style-goals"
-          />
+          <Link href="/style-goals"
+            className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[#FCE4EC] transition hover:shadow-md">
+            <div className="mb-2 text-2xl">✨</div>
+            <p className="font-semibold text-[#605D62]">理想のスタイル</p>
+            <p className="mt-1 text-xs text-[#605D62]/60">画像から判定・登録</p>
+          </Link>
 
-          <HomeCard
-            title="足りない服分析"
-            description="不足カテゴリを分析"
-            href="/analysis"
-          />
+          <Link href="/evaluate"
+            className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[#FCE4EC] transition hover:shadow-md">
+            <div className="mb-2 text-2xl">⭐</div>
+            <p className="font-semibold text-[#605D62]">コーデ評価</p>
+            <p className="mt-1 text-xs text-[#605D62]/60">AIがコーデを評価</p>
+          </Link>
 
-          <HomeCard
-            title="開発中の画面"
-            description="今までの全部入り画面"
-            href="/workbench"
-            wide
-          />
+          <Link href="/logs"
+            className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[#FCE4EC] transition hover:shadow-md">
+            <div className="mb-2 text-2xl">📋</div>
+            <p className="font-semibold text-[#605D62]">コーデログ</p>
+            <p className="mt-1 text-xs text-[#605D62]/60">お気に入りや履歴</p>
+          </Link>
+
         </div>
       </div>
 

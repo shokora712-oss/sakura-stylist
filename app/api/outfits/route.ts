@@ -57,6 +57,7 @@ export async function POST(req: Request) {
         occasion: body.occasion ?? null,
         temperatureLabel: body.temperatureLabel ?? null,
         isFavorite: typeof body.isFavorite === "boolean" ? body.isFavorite : true,
+        imageUrl: body.imageUrl ?? null,
       },
     });
 
