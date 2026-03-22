@@ -35,7 +35,7 @@ export async function GET() {
   }
 
   // アイテムとプロフィールを取得
-  const [items, profile] = await Promise.all([
+  const [items, profile, activeStyleGoal] = await Promise.all([
     prisma.item.findMany({
       where: { userId: session.user.id },
       select: {
@@ -52,6 +52,10 @@ export async function GET() {
     }),
     prisma.profile.findUnique({
       where: { userId: session.user.id },
+    }),
+    prisma.styleGoal.findFirst({
+      where: { userId: session.user.id, isActive: true },
+      orderBy: { updatedAt: "desc" },
     }),
   ]);
 
@@ -110,7 +114,7 @@ export async function GET() {
   })).sort((a, b) => b.count - a.count);
 
   // targetStyle ギャップ分析
-  const targetStyle = profile?.targetStyle ?? null;
+  const targetStyle = activeStyleGoal?.targetStyle ?? null;
   const favoriteStyle = profile?.favoriteStyle ?? null;
 
   let gapAnalysis = null;

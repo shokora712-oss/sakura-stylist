@@ -709,13 +709,20 @@ function scoreStyleHarmonyPenalty(items: OutfitItem[]) {
   const hasGirly = Boolean(counts["girly"]);
   const hasMode = Boolean(counts["mode"]);
   const hasCasual = Boolean(counts["casual"]);
+  const hasClean = Boolean(counts["clean"]);
+  const hasElegant = Boolean(counts["elegant"]);
+  const hasSporty = Boolean(counts["sporty"]);
+  const hasNatural = Boolean(counts["natural"]);
+  const hasSimple = Boolean(counts["simple"]);
 
-  if (hasOffice && hasStreet) penalty += 6;
+if (hasOffice && hasStreet) penalty += 6;
   if (hasStreet && hasFeminine) penalty += 4;
   if (hasStreet && hasGirly) penalty += 4;
+  if (hasStreet && hasElegant) penalty += 4;
+  if (hasStreet && hasClean) penalty += 3;
   if (hasMode && hasGirly) penalty += 2;
   if (hasOffice && hasCasual && dominantStyle !== "office") penalty += 3;
-
+  if (hasElegant && hasSporty) penalty += 3;
   if (dominantCount <= 1 && styleKinds >= 3) penalty += 4;
   if (dominantCount <= 2 && styleKinds >= 4) penalty += 2;
 
