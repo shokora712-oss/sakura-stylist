@@ -4,6 +4,11 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import BottomNav from "../components/BottomNav";
+import {
+  Shuffle, Dress, MapPin, Palette,
+  Sneaker, Sparkle, Flower, Butterfly, TShirt, Leaf, Diamond, Moon, Lightning, HighHeel, BaseballCap,
+  ShoppingBag, Heart, Briefcase, Crown, Airplane, GraduationCap, ShirtFolded,
+} from "@phosphor-icons/react";
 
 type SaveOutfitPayload = {
   topItemId: string | null;
@@ -91,25 +96,25 @@ type Screen =
   | "results";
 
 const STYLE_OPTIONS = [
-  { value: "casual", label: "カジュアル", emoji: "👟" },
-  { value: "clean", label: "きれいめ", emoji: "✨" },
-  { value: "feminine", label: "フェミニン", emoji: "🌸" },
-  { value: "girly", label: "ガーリー", emoji: "🎀" },
-  { value: "simple", label: "シンプル", emoji: "⬜" },
-  { value: "natural", label: "ナチュラル", emoji: "🌿" },
-  { value: "elegant", label: "エレガント", emoji: "💎" },
-  { value: "mode", label: "モード", emoji: "🖤" },
-  { value: "street", label: "ストリート", emoji: "🛹" },
-  { value: "sporty", label: "スポーティ", emoji: "⚡" },
+  { value: "casual", label: "カジュアル", icon: Sneaker },
+  { value: "clean", label: "きれいめ", icon: HighHeel },
+  { value: "feminine", label: "フェミニン", icon: Flower },
+  { value: "girly", label: "ガーリー", icon: Butterfly },
+  { value: "simple", label: "シンプル", icon: TShirt },
+  { value: "natural", label: "ナチュラル", icon: Leaf },
+  { value: "elegant", label: "エレガント", icon: Diamond },
+  { value: "mode", label: "モード", icon: Moon },
+  { value: "street", label: "ストリート", icon: Lightning },
+  { value: "sporty", label: "スポーティ", icon: BaseballCap },
 ];
 
 const OCCASION_OPTIONS = [
-  { value: "casual", label: "お出かけ", emoji: "🛍️" },
-  { value: "date", label: "デート", emoji: "💕" },
-  { value: "office", label: "仕事", emoji: "💼" },
-  { value: "formal", label: "フォーマル", emoji: "🎩" },
-  { value: "travel", label: "旅行", emoji: "✈️", subLabel: "着回し重視" },
-  { value: "school", label: "学校", emoji: "🎓" },
+  { value: "casual", label: "お出かけ", icon: ShoppingBag },
+  { value: "date", label: "デート", icon: Heart },
+  { value: "office", label: "仕事", icon: Briefcase },
+  { value: "formal", label: "フォーマル", icon: ShirtFolded },
+  { value: "travel", label: "旅行", icon: Airplane, subLabel: "着回し重視" },
+  { value: "school", label: "学校", icon: GraduationCap },
 ];
 
 const CATEGORY_TILES = [
@@ -257,7 +262,7 @@ export default function OutfitPage() {
         {screen === "home" && (
           <div className="space-y-5">
             <div>
-              <p className="text-xs text-[#605D62]/60">Closet AI</p>
+              <p className="text-xs text-[#605D62]/60">Sakura Stylist</p>
               <h1 className="text-2xl font-bold">コーデ提案</h1>
             </div>
 
@@ -298,21 +303,24 @@ export default function OutfitPage() {
               onClick={() => generateOutfits({ style: null, occasion: null, fixedItemId: null })}
               disabled={loadingOutfit || loadingItems || items.length === 0}
               className="w-full rounded-3xl bg-gradient-to-r from-[#FCE4EC] to-[#E3F2FD] py-5 text-center font-bold text-[#605D62] shadow-sm transition hover:shadow-md disabled:opacity-50">
-              <p className="text-lg">✨ おまかせコーデ</p>
+              <div className="flex items-center justify-center gap-2">
+                <Shuffle size={22} color="#605D62" />
+                <p className="text-lg">おまかせコーデ</p>
+              </div>
               <p className="mt-1 text-xs text-[#605D62]/60">AIが手持ち服から自由に提案</p>
             </button>
 
             {/* 3つの選択肢 */}
             <div className="grid grid-cols-3 gap-3">
               {[
-                { label: "使いたい服", emoji: "👗", sub: "アイテム指定", screen: "closet-categories" as Screen },
-                { label: "シチュエーション", emoji: "📍", sub: "TPO指定", screen: "occasion-select" as Screen },
-                { label: "系統", emoji: "🎨", sub: "スタイル指定", screen: "style-select" as Screen },
+                { label: "使いたい服", icon: Dress, sub: "アイテム指定", screen: "closet-categories" as Screen },
+                { label: "シチュエーション", icon: MapPin, sub: "TPO指定", screen: "occasion-select" as Screen },
+                { label: "系統", icon: Palette, sub: "スタイル指定", screen: "style-select" as Screen },
               ].map((item) => (
                 <button key={item.label} type="button"
                   onClick={() => setScreen(item.screen)}
                   className="rounded-2xl bg-white p-3 text-center shadow-sm ring-1 ring-[#FCE4EC] transition hover:shadow-md">
-                  <div className="mb-1 text-2xl">{item.emoji}</div>
+                  <div className="mb-1 flex justify-center"><item.icon size={28} color="#605D62" /></div>
                   <p className="text-xs font-semibold text-[#605D62]">{item.label}</p>
                   <p className="text-xs text-[#605D62]/50">{item.sub}</p>
                 </button>
@@ -397,7 +405,7 @@ export default function OutfitPage() {
                 <button key={opt.value} type="button"
                   onClick={() => { setSelectedStyle(opt.value); generateOutfits({ style: opt.value, occasion: selectedOccasion }); }}
                   className="flex items-center gap-3 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-[#FCE4EC] transition hover:shadow-md">
-                  <span className="text-2xl">{opt.emoji}</span>
+                  <opt.icon size={24} color="#605D62" />
                   <span className="text-sm font-semibold">{opt.label}</span>
                 </button>
               ))}
@@ -414,7 +422,7 @@ export default function OutfitPage() {
                 <button key={opt.value} type="button"
                   onClick={() => { setSelectedOccasion(opt.value); generateOutfits({ style: selectedStyle, occasion: opt.value }); }}
                   className="flex h-28 flex-col items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-[#FCE4EC] transition hover:shadow-md">
-                  <span className="mb-1 text-2xl">{opt.emoji}</span>
+                  <opt.icon size={28} color="#605D62" className="mb-1" />
                   <span className="text-sm font-semibold">{opt.label}</span>
                   {opt.subLabel && <span className="mt-0.5 text-xs text-[#605D62]/50">{opt.subLabel}</span>}
                 </button>

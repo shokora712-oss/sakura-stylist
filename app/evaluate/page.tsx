@@ -1,31 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import AppHeader from "../components/AppHeader";
-
-type OccasionOption = {
-  value: string;
-  label: string;
-};
-
-type SeasonOption = {
-  value: string;
-  label: string;
-};
-
-type StyleOption = {
-  value: string;
-  label: string;
-};
-
-type ImageAnalysis = {
-  detectedItems: string[];
-  dominantColors: string[];
-  styleGuess: string;
-  seasonGuess: string;
-  comment: string;
-};
+import BottomNav from "../components/BottomNav";
 
 type EvaluationResult = {
   totalScore: number;
@@ -36,18 +13,9 @@ type EvaluationResult = {
   summary: string;
   goodPoints: string[];
   improvementPoints: string[];
-
-  debug?: {
-    imageName: string | null;
-    imageType: string | null;
-    imageSize: number | null;
-  };
-
-  analysis?: ImageAnalysis;
 };
 
-
-const occasionOptions: OccasionOption[] = [
+const occasionOptions = [
   { value: "casual", label: "カジュアル" },
   { value: "date", label: "デート" },
   { value: "office", label: "仕事" },
@@ -56,50 +24,28 @@ const occasionOptions: OccasionOption[] = [
   { value: "school", label: "学校" },
 ];
 
-const seasonOptions: SeasonOption[] = [
+const seasonOptions = [
   { value: "spring", label: "春" },
   { value: "summer", label: "夏" },
   { value: "autumn", label: "秋" },
   { value: "winter", label: "冬" },
 ];
 
-const styleOptions: StyleOption[] = [
+const styleOptions = [
   { value: "casual", label: "カジュアル" },
-  { value: "girly", label: "ガーリー" },
-  { value: "street", label: "ストリート" },
-  { value: "mode", label: "モード" },
-  { value: "minimal", label: "ミニマル" },
+  { value: "clean", label: "きれいめ" },
   { value: "feminine", label: "フェミニン" },
-  { value: "office", label: "オフィス" },
+  { value: "girly", label: "ガーリー" },
+  { value: "simple", label: "シンプル" },
+  { value: "natural", label: "ナチュラル" },
+  { value: "elegant", label: "エレガント" },
+  { value: "mode", label: "モード" },
+  { value: "street", label: "ストリート" },
+  { value: "sporty", label: "スポーティ" },
 ];
 
-export default function EvaluatePage() {
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreviewUrl, setImagePreviewUrl] = useState<string>("");
-
-  const [selectedOccasion, setSelectedOccasion] = useState<string | null>(null);
-  const [selectedSeason, setSelectedSeason] = useState<string | null>(null);
-  const [selectedStyle, setSelectedStyle] = useState<string | null>(null);
-
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
-  const [result, setResult] = useState<EvaluationResult | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (imagePreviewUrl) {
-        URL.revokeObjectURL(imagePreviewUrl);
-      }
-    };
-  }, [imagePreviewUrl]);
-
-  const canEvaluate = useMemo(() => {
-    return Boolean(imageFile && selectedOccasion && selectedSeason && selectedStyle);
-  }, [imageFile, selectedOccasion, selectedSeason, selectedStyle]);
-
-const compressImageFile = async (file: File): Promise<File> => {
+async function compressImageFile(file: File): Promise<File> {
   const imageUrl = URL.createObjectURL(file);
-
   try {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
       const el = new Image();
@@ -107,405 +53,206 @@ const compressImageFile = async (file: File): Promise<File> => {
       el.onerror = reject;
       el.src = imageUrl;
     });
-
-    const maxWidth = 1600;
-    const maxHeight = 1600;
-
+    const maxWidth = 1600, maxHeight = 1600;
     let { width, height } = img;
-
     if (width > maxWidth || height > maxHeight) {
       const ratio = Math.min(maxWidth / width, maxHeight / height);
       width = Math.round(width * ratio);
       height = Math.round(height * ratio);
     }
-
     const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-
+    canvas.width = width; canvas.height = height;
     const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      throw new Error("画像圧縮の初期化に失敗しました");
-    }
-
+    if (!ctx) throw new Error();
     ctx.drawImage(img, 0, 0, width, height);
+    const blob = await new Promise<Blob | null>((resolve) => { canvas.toBlob(resolve, "image/jpeg", 0.82); });
+    if (!blob) throw new Error();
+    return new File([blob], `${file.name.replace(/\.[^.]+$/, "")}.jpg`, { type: "image/jpeg" });
+  } finally { URL.revokeObjectURL(imageUrl); }
+}
 
-    const blob = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob(resolve, "image/jpeg", 0.82);
-    });
+export default function EvaluatePage() {
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string>("");
+  const [selectedOccasion, setSelectedOccasion] = useState<string | null>(null);
+  const [selectedSeason, setSelectedSeason] = useState<string | null>(null);
+  const [selectedStyle, setSelectedStyle] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+  const [result, setResult] = useState<EvaluationResult | null>(null);
 
-    if (!blob) {
-      throw new Error("画像圧縮に失敗しました");
-    }
+  useEffect(() => {
+    return () => { if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl); };
+  }, [imagePreviewUrl]);
 
-    const originalBaseName = file.name.replace(/\.[^.]+$/, "");
-    return new File([blob], `${originalBaseName}.jpg`, {
-      type: "image/jpeg",
-    });
-  } finally {
-    URL.revokeObjectURL(imageUrl);
-  }
-};
+  const canEvaluate = useMemo(() => {
+    return Boolean(imageFile && selectedOccasion && selectedSeason && selectedStyle);
+  }, [imageFile, selectedOccasion, selectedSeason, selectedStyle]);
 
   const handleImageChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] ?? null;
-
-    if (!file) {
-      setImageFile(null);
-      setImagePreviewUrl("");
-      return;
-    }
-
+    if (!file) { setImageFile(null); setImagePreviewUrl(""); return; }
     try {
-      setMessage("画像を調整中...");
-      setResult(null);
-
+      setMessage("画像を調整中..."); setResult(null);
       const compressedFile = await compressImageFile(file);
-
       setImageFile(compressedFile);
-      const previewUrl = URL.createObjectURL(compressedFile);
-      setImagePreviewUrl(previewUrl);
+      setImagePreviewUrl(URL.createObjectURL(compressedFile));
       setMessage("");
-    } catch (error) {
-      console.error(error);
-      setImageFile(null);
-      setImagePreviewUrl("");
+    } catch {
+      setImageFile(null); setImagePreviewUrl("");
       setMessage("画像の読み込みに失敗しました");
     }
   };
 
   const handleEvaluate = async () => {
-    if (!canEvaluate || !imageFile) {
-      setMessage("画像・TPO・季節・なりたい系統を選んでね");
-      return;
-    }
-
+    if (!canEvaluate || !imageFile) { setMessage("画像・TPO・季節・なりたい系統を選んでね"); return; }
     try {
-      setLoading(true);
-      setMessage("");
-      setResult(null);
-
+      setLoading(true); setMessage(""); setResult(null);
       const formData = new FormData();
       formData.append("image", imageFile);
       formData.append("occasion", selectedOccasion ?? "");
       formData.append("season", selectedSeason ?? "");
       formData.append("style", selectedStyle ?? "");
-
-      const res = await fetch("/api/evaluate", {
-        method: "POST",
-        body: formData,
-      });
-
+      const res = await fetch("/api/evaluate", { method: "POST", body: formData });
       const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data?.error || "コーデ評価に失敗しました");
-      }
-
+      if (!res.ok) throw new Error(data?.error || "コーデ評価に失敗しました");
       setResult(data);
     } catch (error) {
-      console.error(error);
-      setMessage(
-        error instanceof Error ? error.message : "コーデ評価に失敗しました"
-      );
-    } finally {
-      setLoading(false);
-    }
+      setMessage(error instanceof Error ? error.message : "コーデ評価に失敗しました");
+    } finally { setLoading(false); }
   };
 
   return (
-    <main className="min-h-screen bg-[#fafafa] pb-24">
+    <main className="min-h-screen bg-[#fdf2f6] pb-24 text-[#605D62]">
       <div className="mx-auto max-w-md px-4 py-6">
-        <PageHeader
-          title="コーデ評価"
-          description="画像からコーデを評価して、良い点と改善点をチェック。"
-        />
+        <AppHeader title="コーデ評価" description="AIがコーデをスコアリングします" />
 
-        <section className="space-y-4">
-          <SectionCard>
-            <h2 className="mb-4 text-xl font-bold">コーデ画像</h2>
-
+        <div className="space-y-4">
+          {/* 画像アップロード */}
+          <div className="rounded-3xl bg-white p-5 ring-1 ring-[#FCE4EC]">
+            <h2 className="mb-3 font-semibold">コーデ画像</h2>
             <label className="block cursor-pointer">
-              <div className="flex h-72 items-center justify-center rounded-3xl bg-gray-100 text-center">
+              <div className="flex h-64 items-center justify-center overflow-hidden rounded-2xl bg-[#fdf2f6]">
                 {imagePreviewUrl ? (
-                  <img
-                    src={imagePreviewUrl}
-                    alt="コーデ画像プレビュー"
-                    className="h-full w-full rounded-3xl object-contain"
-                  />
+                  <img src={imagePreviewUrl} alt="preview" className="h-full w-full object-contain" />
                 ) : (
-                  <div className="px-6">
-                    <p className="text-lg font-semibold">画像をアップロード</p>
-                    <p className="mt-2 text-sm text-gray-500">
-                      コーデ全体が分かる写真を1枚選んでね
-                    </p>
+                  <div className="text-center">
+                    <p className="text-3xl">📷</p>
+                    <p className="mt-2 text-sm font-medium">タップして画像を選択</p>
+                    <p className="text-xs text-[#605D62]/50">コーデ全体が写った写真を選んでね</p>
                   </div>
                 )}
               </div>
-
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageChange}
-                className="hidden"
-              />
+              <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
             </label>
+          </div>
 
-            {imageFile && (
-              <div className="mt-4 rounded-2xl bg-gray-50 p-3 text-sm text-gray-600">
-                <p>
-                  <span className="font-semibold text-gray-800">選択中ファイル：</span>
-                  {imageFile.name}
-                </p>
-                <p>
-                  <span className="font-semibold text-gray-800">形式：</span>
-                  {imageFile.type || "不明"}
-                </p>
-                <p>
-                  <span className="font-semibold text-gray-800">サイズ：</span>
-                  {(imageFile.size / 1024).toFixed(1)} KB
-                </p>
-              </div>
-            )}
-          </SectionCard>
-
-          <SectionCard>
-            <h2 className="mb-4 text-xl font-bold">TPO</h2>
+          {/* TPO */}
+          <div className="rounded-3xl bg-white p-5 ring-1 ring-[#FCE4EC]">
+            <h2 className="mb-3 font-semibold">TPO</h2>
             <div className="flex flex-wrap gap-2">
-              {occasionOptions.map((option) => (
-                <ChipButton
-                  key={option.value}
-                  label={option.label}
-                  active={selectedOccasion === option.value}
-                  onClick={() => setSelectedOccasion(option.value)}
-                />
+              {occasionOptions.map((opt) => (
+                <button key={opt.value} type="button" onClick={() => setSelectedOccasion(opt.value)}
+                  className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                    selectedOccasion === opt.value ? "bg-[#605D62] text-white" : "bg-[#fdf2f6] text-[#605D62]"
+                  }`}>
+                  {opt.label}
+                </button>
               ))}
             </div>
-          </SectionCard>
+          </div>
 
-          <SectionCard>
-            <h2 className="mb-4 text-xl font-bold">季節</h2>
+          {/* 季節 */}
+          <div className="rounded-3xl bg-white p-5 ring-1 ring-[#FCE4EC]">
+            <h2 className="mb-3 font-semibold">季節</h2>
             <div className="flex flex-wrap gap-2">
-              {seasonOptions.map((option) => (
-                <ChipButton
-                  key={option.value}
-                  label={option.label}
-                  active={selectedSeason === option.value}
-                  onClick={() => setSelectedSeason(option.value)}
-                />
+              {seasonOptions.map((opt) => (
+                <button key={opt.value} type="button" onClick={() => setSelectedSeason(opt.value)}
+                  className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                    selectedSeason === opt.value ? "bg-[#605D62] text-white" : "bg-[#fdf2f6] text-[#605D62]"
+                  }`}>
+                  {opt.label}
+                </button>
               ))}
             </div>
-          </SectionCard>
+          </div>
 
-          <SectionCard>
-            <h2 className="mb-4 text-xl font-bold">なりたい系統</h2>
+          {/* なりたい系統 */}
+          <div className="rounded-3xl bg-white p-5 ring-1 ring-[#FCE4EC]">
+            <h2 className="mb-3 font-semibold">なりたい系統</h2>
             <div className="flex flex-wrap gap-2">
-              {styleOptions.map((option) => (
-                <ChipButton
-                  key={option.value}
-                  label={option.label}
-                  active={selectedStyle === option.value}
-                  onClick={() => setSelectedStyle(option.value)}
-                />
+              {styleOptions.map((opt) => (
+                <button key={opt.value} type="button" onClick={() => setSelectedStyle(opt.value)}
+                  className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                    selectedStyle === opt.value ? "bg-[#605D62] text-white" : "bg-[#fdf2f6] text-[#605D62]"
+                  }`}>
+                  {opt.label}
+                </button>
               ))}
             </div>
-          </SectionCard>
+          </div>
 
-          <button
-            type="button"
-            onClick={handleEvaluate}
-            disabled={!canEvaluate || loading}
-            className="w-full rounded-3xl bg-[#0b2341] py-4 text-base font-semibold text-white shadow-sm disabled:opacity-40"
-          >
+          <button type="button" onClick={handleEvaluate} disabled={!canEvaluate || loading}
+            className="w-full rounded-3xl bg-[#605D62] py-4 text-sm font-bold text-white shadow-sm disabled:opacity-40">
             {loading ? "AIが評価中..." : "評価する"}
           </button>
 
           {message && (
-            <div className="rounded-3xl bg-yellow-50 p-4 text-sm text-yellow-800">
-              {message}
-            </div>
+            <div className="rounded-2xl bg-[#FCE4EC] p-4 text-sm text-[#605D62]">{message}</div>
           )}
 
           {result && (
             <>
-              <SectionCard>
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-2xl font-bold">AI評価結果</h2>
-                  <div className="rounded-2xl bg-gray-100 px-4 py-2 text-sm font-semibold">
+              <div className="rounded-3xl bg-white p-5 ring-1 ring-[#FCE4EC]">
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="font-semibold">AI評価結果</h2>
+                  <span className="rounded-full bg-[#FCE4EC] px-3 py-1 text-sm font-bold text-[#605D62]">
                     {result.totalScore}点
-                  </div>
+                  </span>
                 </div>
-
-                <p className="text-sm leading-6 text-gray-600">{result.summary}</p>
-              </SectionCard>
-
-              {result.debug && (
-                <SectionCard>
-                  <h3 className="mb-3 text-lg font-bold">画像受信確認</h3>
-                  <div className="space-y-2 text-sm text-gray-600">
-                    <p>
-                      <span className="font-semibold text-gray-800">ファイル名：</span>
-                      {result.debug.imageName ?? "なし"}
-                    </p>
-                    <p>
-                      <span className="font-semibold text-gray-800">形式：</span>
-                      {result.debug.imageType ?? "なし"}
-                    </p>
-                    <p>
-                      <span className="font-semibold text-gray-800">サイズ：</span>
-                      {typeof result.debug.imageSize === "number"
-                        ? `${(result.debug.imageSize / 1024).toFixed(1)} KB`
-                        : "なし"}
-                    </p>
-                  </div>
-                </SectionCard>
-              )}
-
-              {result.analysis && (
-                <SectionCard>
-                  <h3 className="mb-3 text-lg font-bold">画像解析結果</h3>
-                  <div className="space-y-2 text-sm text-gray-600">
-                    <p>
-                      <span className="font-semibold text-gray-800">検出アイテム：</span>
-                      {result.analysis.detectedItems.join(" / ")}
-                    </p>
-                    <p>
-                      <span className="font-semibold text-gray-800">想定カラー：</span>
-                      {result.analysis.dominantColors.join(" / ")}
-                    </p>
-                    <p>
-                      <span className="font-semibold text-gray-800">想定系統：</span>
-                      {result.analysis.styleGuess}
-                    </p>
-                    <p>
-                      <span className="font-semibold text-gray-800">想定季節感：</span>
-                      {result.analysis.seasonGuess}
-                    </p>
-                    <p>
-                      <span className="font-semibold text-gray-800">AIコメント：</span>
-                      {result.analysis.comment}
-                    </p>
-                  </div>
-                </SectionCard>
-              )}
-
-              <div className="grid grid-cols-2 gap-4">
-                <ScoreCard label="色バランス" score={result.colorScore} />
-                <ScoreCard label="シルエット" score={result.silhouetteScore} />
-                <ScoreCard label="季節感" score={result.seasonScore} />
-                <ScoreCard label="TPO適合" score={result.occasionScore} />
+                <p className="text-sm leading-relaxed text-[#605D62]/80">{result.summary}</p>
               </div>
 
-              <SectionCard>
-                <h3 className="mb-3 text-lg font-bold">良い点</h3>
-                <ul className="space-y-2 text-sm leading-6 text-gray-600">
-                  {result.goodPoints.map((point, index) => (
-                    <li key={index}>・{point}</li>
-                  ))}
-                </ul>
-              </SectionCard>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: "色バランス", score: result.colorScore },
+                  { label: "シルエット", score: result.silhouetteScore },
+                  { label: "季節感", score: result.seasonScore },
+                  { label: "TPO適合", score: result.occasionScore },
+                ].map((item) => (
+                  <div key={item.label} className="rounded-2xl bg-white p-4 ring-1 ring-[#FCE4EC]">
+                    <p className="text-xs text-[#605D62]/60">{item.label}</p>
+                    <p className="mt-1 text-xl font-bold text-[#605D62]">{item.score}<span className="text-xs font-normal"> / 24</span></p>
+                  </div>
+                ))}
+              </div>
 
-              <SectionCard>
-                <h3 className="mb-3 text-lg font-bold">改善ポイント</h3>
-                <ul className="space-y-2 text-sm leading-6 text-gray-600">
-                  {result.improvementPoints.map((point, index) => (
-                    <li key={index}>・{point}</li>
+              <div className="rounded-3xl bg-white p-5 ring-1 ring-[#FCE4EC]">
+                <h3 className="mb-3 text-sm font-semibold text-emerald-600">良い点</h3>
+                <ul className="space-y-2">
+                  {result.goodPoints.map((p, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm">
+                      <span className="mt-0.5 text-emerald-500">✓</span>{p}
+                    </li>
                   ))}
                 </ul>
-              </SectionCard>
+              </div>
+
+              <div className="rounded-3xl bg-white p-5 ring-1 ring-[#FCE4EC]">
+                <h3 className="mb-3 text-sm font-semibold text-orange-500">改善ポイント</h3>
+                <ul className="space-y-2">
+                  {result.improvementPoints.map((p, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm">
+                      <span className="mt-0.5 text-orange-400">→</span>{p}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </>
           )}
-        </section>
+        </div>
       </div>
-
       <BottomNav />
     </main>
-  );
-}
-
-function PageHeader({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-      <AppHeader
-        title="コーデ評価"
-        description="画像からコーデを評価して、良い点と改善点をチェック。"
-      />
-        );
-}
-
-function SectionCard({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
-      {children}
-    </div>
-  );
-}
-
-function ChipButton({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-2xl px-4 py-2 text-sm font-medium transition ${
-        active
-          ? "bg-[#0b2341] text-white"
-          : "border border-gray-200 bg-gray-50 text-gray-700"
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
-
-function ScoreCard({
-  label,
-  score,
-}: {
-  label: string;
-  score: number;
-}) {
-  return (
-    <div className="rounded-3xl border border-gray-200 bg-white p-4 shadow-sm">
-      <p className="text-sm text-gray-500">{label}</p>
-      <p className="mt-2 text-2xl font-bold text-[#0b2341]">{score} / 24</p>
-    </div>
-  );
-}
-
-function BottomNav() {
-  return (
-    <nav className="fixed bottom-0 left-1/2 w-full max-w-md -translate-x-1/2 border-t border-gray-200 bg-white px-8 py-3">
-      <div className="flex items-center justify-between">
-        <Link href="/" className="flex h-12 w-12 items-center justify-center text-2xl">
-          🏠
-        </Link>
-        <Link
-          href="/closet/new"
-          className="flex h-12 w-12 items-center justify-center rounded-2xl border border-gray-300 text-2xl"
-        >
-          ＋
-        </Link>
-        <Link href="/logs" className="flex h-12 w-12 items-center justify-center text-2xl">
-          👤
-        </Link>
-      </div>
-    </nav>
   );
 }
