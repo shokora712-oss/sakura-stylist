@@ -7,7 +7,7 @@ import BottomNav from "../components/BottomNav";
 import {
   Shuffle, Dress, MapPin, Palette,
   Sneaker, Sparkle, Flower, Butterfly, TShirt, Leaf, Diamond, Moon, Lightning, HighHeel, BaseballCap,
-  ShoppingBag, Heart, Briefcase, Crown, Airplane, GraduationCap, ShirtFolded,
+  ShoppingBag, Heart, Briefcase, ShirtFolded, Airplane, GraduationCap,
 } from "@phosphor-icons/react";
 
 type SaveOutfitPayload = {
@@ -63,19 +63,7 @@ type Outfit = {
   rank: number;
   score: number;
   reasons: string[];
-  breakdown: {
-    occasion: number;
-    style: number;
-    color: number;
-    preference: number;
-    rewear: number;
-    setupBonus: number;
-    suitBonus: number;
-    moodCohesionBonus: number;
-    versatilityBonus: number;
-    harmonyPenalty: number;
-    styleHarmonyPenalty: number;
-  };
+  breakdown: Record<string, number>;
   items: OutfitItem[];
   slotMap: OutfitSlotMap;
 };
@@ -85,6 +73,15 @@ type OutfitResponse = {
   count?: number;
   outfits?: Outfit[];
   error?: string;
+};
+
+type WeatherData = {
+  minTemp: number;
+  maxTemp: number;
+  isRainy: boolean;
+  description: string;
+  iconUrl: string;
+  cityName: string;
 };
 
 type Screen =
@@ -146,14 +143,54 @@ export default function OutfitPage() {
   const [selectedItemId, setSelectedItemId] = useState<string>("");
   const [prioritizeVersatility, setPrioritizeVersatility] = useState(false);
 
+  const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [userLat, setUserLat] = useState<number | null>(null);
+  const [userLon, setUserLon] = useState<number | null>(null);
+
   const [outfitResult, setOutfitResult] = useState<OutfitResponse | null>(null);
   const [message, setMessage] = useState("");
   const [currentResultIndex, setCurrentResultIndex] = useState(0);
 
   useEffect(() => { void fetchItems(); }, []);
+
   useEffect(() => {
     setPrioritizeVersatility(selectedOccasion === "travel");
   }, [selectedOccasion]);
+
+  // 位置情報取得
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserLat(pos.coords.latitude);
+        setUserLon(pos.coords.longitude);
+      },
+      () => setLocationError("位置情報を取得できませんでした")
+    );
+  }, []);
+
+  // 時間帯変更時に予報を取得
+  useEffect(() => {
+    if (!userLat || !userLon) return;
+    void fetchForecast(userLat, userLon, selectedOutingTime, selectedReturnTime);
+  }, [userLat, userLon, selectedOutingTime, selectedReturnTime]);
+
+  async function fetchForecast(lat: number, lon: number, outingTime: string, returnTime: string) {
+    setWeatherLoading(true);
+    try {
+      const res = await fetch(
+        `/api/weather?lat=${lat}&lon=${lon}&type=forecast&outingTime=${encodeURIComponent(outingTime)}&returnTime=${encodeURIComponent(returnTime)}`
+      );
+      const data = await res.json();
+      if (res.ok) setWeather(data);
+    } catch {
+      // 天気取得失敗は無視して続行
+    } finally {
+      setWeatherLoading(false);
+    }
+  }
 
   const filteredItems = useMemo(() => {
     if (!selectedCategory || selectedCategory === "all") return items;
@@ -187,6 +224,11 @@ export default function OutfitPage() {
       setMessage("");
       setOutfitResult(null);
 
+      // 天気から気温を自動取得、なければ時間帯から推定
+      const tempRange = weather
+        ? { min: weather.minTemp, max: weather.maxTemp }
+        : getTempRange(selectedOutingTime, selectedReturnTime);
+
       const res = await fetch("/api/outfit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -194,8 +236,9 @@ export default function OutfitPage() {
           style: params?.style ?? selectedStyle ?? null,
           occasion: params?.occasion ?? selectedOccasion ?? null,
           fixedItemId: params?.fixedItemId ?? (selectedItemId || null),
-          minTemp: getTempRange(selectedOutingTime, selectedReturnTime).min,
-          maxTemp: getTempRange(selectedOutingTime, selectedReturnTime).max,
+          minTemp: tempRange.min,
+          maxTemp: tempRange.max,
+          isRainy: weather?.isRainy ?? false,
           prioritizeVersatility: (params?.occasion ?? selectedOccasion) === "travel",
           limit: 3,
         }),
@@ -227,7 +270,9 @@ export default function OutfitPage() {
         score: outfit.score,
         comment: outfit.reasons?.[0] ?? null,
         occasion: selectedOccasion ?? null,
-        temperatureLabel: `${selectedOutingTime}-${selectedReturnTime}`,
+        temperatureLabel: weather
+          ? `${weather.minTemp}℃〜${weather.maxTemp}℃`
+          : `${selectedOutingTime}-${selectedReturnTime}`,
         isFavorite: true,
       };
       const res = await fetch("/api/outfits", {
@@ -243,22 +288,17 @@ export default function OutfitPage() {
   }
 
   function goNext() {
-    if (currentResultIndex < totalResults - 1) {
-      setCurrentResultIndex((prev) => prev + 1);
-    }
+    if (currentResultIndex < totalResults - 1) setCurrentResultIndex((prev) => prev + 1);
   }
 
   function goPrev() {
-    if (currentResultIndex > 0) {
-      setCurrentResultIndex((prev) => prev - 1);
-    }
+    if (currentResultIndex > 0) setCurrentResultIndex((prev) => prev - 1);
   }
 
   return (
     <main className="min-h-screen bg-[#fdf2f6] pb-32 text-[#605D62]">
       <div className="mx-auto max-w-md px-4 py-6">
 
-        {/* ホーム画面 */}
         {screen === "home" && (
           <div className="space-y-5">
             <div>
@@ -266,17 +306,44 @@ export default function OutfitPage() {
               <h1 className="text-2xl font-bold">コーデ提案</h1>
             </div>
 
+            {/* 天気カード */}
+            <div className="rounded-3xl bg-white p-4 ring-1 ring-[#FCE4EC]">
+              <p className="mb-2 text-xs font-semibold text-[#605D62]/60">今日の天気</p>
+              {weatherLoading ? (
+                <p className="text-sm text-[#605D62]/40">取得中...</p>
+              ) : locationError ? (
+                <p className="text-xs text-[#605D62]/40">{locationError}</p>
+              ) : weather ? (
+                <div className="flex items-center gap-3">
+                  {weather.iconUrl && (
+                    <img src={weather.iconUrl} alt={weather.description} className="h-12 w-12" />
+                  )}
+                  <div>
+                    <p className="text-lg font-bold text-[#605D62]">
+                      {weather.minTemp}℃〜{weather.maxTemp}℃
+                    </p>
+                    <p className="text-xs text-[#605D62]/60">{weather.description}</p>
+                    {weather.isRainy && (
+                      <span className="mt-0.5 inline-block rounded-full bg-[#E3F2FD] px-2 py-0.5 text-xs text-[#605D62]">
+                        🌂 雨対策コーデを提案します
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-[#605D62]/40">位置情報を許可すると天気を表示できます</p>
+              )}
+            </div>
+
             {/* 時間帯選択 */}
-            <div className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[#FCE4EC]">
+            <div className="rounded-3xl bg-white p-4 ring-1 ring-[#FCE4EC]">
               <p className="mb-3 text-sm font-semibold">お出かけ時間</p>
               <div className="flex flex-wrap gap-2">
                 {OUTING_TIMES.map((time) => (
                   <button key={time} type="button"
                     onClick={() => setSelectedOutingTime(time)}
                     className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                      selectedOutingTime === time
-                        ? "bg-[#605D62] text-white"
-                        : "bg-[#fdf2f6] text-[#605D62]"
+                      selectedOutingTime === time ? "bg-[#605D62] text-white" : "bg-[#fdf2f6] text-[#605D62]"
                     }`}>
                     {time}
                   </button>
@@ -288,9 +355,7 @@ export default function OutfitPage() {
                   <button key={time} type="button"
                     onClick={() => setSelectedReturnTime(time)}
                     className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                      selectedReturnTime === time
-                        ? "bg-[#605D62] text-white"
-                        : "bg-[#fdf2f6] text-[#605D62]"
+                      selectedReturnTime === time ? "bg-[#605D62] text-white" : "bg-[#fdf2f6] text-[#605D62]"
                     }`}>
                     {time}
                   </button>
@@ -329,12 +394,9 @@ export default function OutfitPage() {
           </div>
         )}
 
-{/* アイテム選択（タブ形式） */}
         {(screen === "closet-categories" || screen === "closet-items") && (
           <div>
             <SubHeader title="使いたい服を選ぶ" onBack={() => setScreen("home")} />
-
-            {/* カテゴリタブ */}
             <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
               {CATEGORY_TILES.map((cat) => (
                 <button key={cat.value} type="button"
@@ -352,11 +414,8 @@ export default function OutfitPage() {
               ))}
             </div>
 
-            {/* アイテムグリッド */}
             {!selectedCategory ? (
-              <p className="py-10 text-center text-sm text-[#605D62]/50">
-                カテゴリを選んでください
-              </p>
+              <p className="py-10 text-center text-sm text-[#605D62]/50">カテゴリを選んでください</p>
             ) : loadingItems ? (
               <p className="py-10 text-center text-sm text-[#605D62]/50">読み込み中...</p>
             ) : filteredItems.length === 0 ? (
@@ -368,7 +427,7 @@ export default function OutfitPage() {
                 {filteredItems.map((item) => (
                   <button key={item.id} type="button"
                     onClick={() => generateOutfits({ style: selectedStyle, occasion: selectedOccasion, fixedItemId: item.id })}
-                    className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-[#FCE4EC] transition hover:shadow-md text-left">
+                    className="overflow-hidden rounded-3xl bg-white text-left shadow-sm ring-1 ring-[#FCE4EC] transition hover:shadow-md">
                     <div className="relative h-44 bg-[#fdf2f6]">
                       {item.imageUrl ? (
                         <img src={item.imageUrl} alt={item.name ?? ""} className="h-full w-full object-cover" />
@@ -396,7 +455,6 @@ export default function OutfitPage() {
           </div>
         )}
 
-        {/* スタイル選択 */}
         {screen === "style-select" && (
           <div>
             <SubHeader title="系統を選ぶ" onBack={() => setScreen("home")} />
@@ -413,7 +471,6 @@ export default function OutfitPage() {
           </div>
         )}
 
-        {/* シチュエーション選択 */}
         {screen === "occasion-select" && (
           <div>
             <SubHeader title="シチュエーション" onBack={() => setScreen("home")} />
@@ -431,30 +488,33 @@ export default function OutfitPage() {
           </div>
         )}
 
-        {/* 結果画面 */}
         {screen === "results" && (
           <div>
             <SubHeader title="コーデ提案" onBack={() => setScreen("home")} />
 
-            {loadingOutfit && (
-              <div className="py-20 text-center text-sm text-[#605D62]/60">
-                コーデを考え中...
+            {/* 天気サマリー */}
+            {weather && (
+              <div className="mb-4 flex items-center gap-2 rounded-2xl bg-white px-4 py-2.5 ring-1 ring-[#FCE4EC]">
+                {weather.iconUrl && <img src={weather.iconUrl} alt="" className="h-8 w-8" />}
+                <p className="text-xs text-[#605D62]">
+                  {weather.minTemp}℃〜{weather.maxTemp}℃ · {weather.description}
+                  {weather.isRainy && " · 雨対策済み"}
+                </p>
               </div>
             )}
 
+            {loadingOutfit && (
+              <div className="py-20 text-center text-sm text-[#605D62]/60">コーデを考え中...</div>
+            )}
+
             {outfitResult?.error && (
-              <div className="rounded-2xl bg-red-50 p-4 text-sm text-red-600">
-                {outfitResult.error}
-              </div>
+              <div className="rounded-2xl bg-red-50 p-4 text-sm text-red-600">{outfitResult.error}</div>
             )}
 
             {!loadingOutfit && currentOutfit && (
               <div className="space-y-4">
-                {/* ページネーション */}
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold">
-                    提案 {currentResultIndex + 1} / {totalResults}
-                  </p>
+                  <p className="text-sm font-semibold">提案 {currentResultIndex + 1} / {totalResults}</p>
                   <div className="flex gap-2">
                     {Array.from({ length: totalResults }).map((_, i) => (
                       <button key={i} type="button" onClick={() => setCurrentResultIndex(i)}
@@ -465,19 +525,15 @@ export default function OutfitPage() {
                   </div>
                 </div>
 
-                {/* スコア + コメント */}
                 <div className="rounded-3xl bg-gradient-to-r from-[#FCE4EC] to-[#E3F2FD] p-4">
                   <div className="mb-2 flex items-center gap-2">
                     <span className="text-lg font-bold">スコア {currentOutfit.score}点</span>
                   </div>
                   {currentOutfit.reasons?.length > 0 && (
-                    <p className="text-sm leading-relaxed text-[#605D62]">
-                      {currentOutfit.reasons[0]}
-                    </p>
+                    <p className="text-sm leading-relaxed text-[#605D62]">{currentOutfit.reasons[0]}</p>
                   )}
                 </div>
 
-                {/* アイテム一覧 */}
                 <div className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[#FCE4EC]">
                   <p className="mb-3 text-sm font-semibold">コーデアイテム</p>
                   <div className="grid grid-cols-2 gap-3">
@@ -507,7 +563,6 @@ export default function OutfitPage() {
                   </div>
                 </div>
 
-                {/* アクションボタン */}
                 <div className="grid grid-cols-2 gap-3">
                   <button type="button" onClick={goPrev} disabled={currentResultIndex === 0}
                     className="rounded-2xl bg-white py-3 text-sm font-medium ring-1 ring-[#FCE4EC] disabled:opacity-30">
@@ -528,9 +583,7 @@ export default function OutfitPage() {
                 </div>
 
                 {message && (
-                  <div className="rounded-2xl bg-emerald-50 p-3 text-center text-sm text-emerald-600">
-                    {message}
-                  </div>
+                  <div className="rounded-2xl bg-emerald-50 p-3 text-center text-sm text-emerald-600">{message}</div>
                 )}
               </div>
             )}
@@ -558,14 +611,6 @@ function SubHeader({ title, onBack }: { title: string; onBack: () => void }) {
 function normalizeCategory(category: string) {
   if (category === "bags") return "bag";
   return category;
-}
-
-function getCategoryLabel(category: string) {
-  const map: Record<string, string> = {
-    tops: "トップス", bottoms: "ボトムス", onepiece: "ワンピース",
-    outer: "アウター", shoes: "シューズ", bag: "バッグ", bags: "バッグ",
-  };
-  return map[category] ?? category;
 }
 
 function getTempRange(outing: string, returning: string) {
