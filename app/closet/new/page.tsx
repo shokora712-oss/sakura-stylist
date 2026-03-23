@@ -1099,16 +1099,16 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
   }
 
   return (
-    <main className="min-h-screen bg-neutral-50 pb-32 text-neutral-900">
+    <main className="min-h-screen bg-[#fdf2f6] pb-32 text-[#605D62]">
       <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 py-6">
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm text-neutral-500">Closet AI</p>
+            <p className="text-xs text-[#605D62]/40">Sakura Stylist</p>
             <h1 className="text-2xl font-bold">アイテム登録</h1>
           </div>
           <Link
             href="/closet"
-            className="inline-flex w-fit rounded-xl border border-neutral-300 bg-white px-4 py-2 text-sm font-medium hover:bg-neutral-100"
+            className="inline-flex w-fit rounded-xl border border-[#FCE4EC] bg-white px-4 py-2 text-sm font-medium text-[#605D62] hover:bg-[#fdf2f6]"
           >
             クローゼットへ戻る
           </Link>
@@ -1121,8 +1121,8 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
             className={classNames(
               "rounded-full px-4 py-2 text-sm font-medium transition",
               mode === "image"
-                ? "bg-neutral-900 text-white"
-                : "bg-white text-neutral-700 ring-1 ring-neutral-300 hover:bg-neutral-100"
+                ? "bg-[#605D62] text-white"
+                : "bg-white text-[#605D62] ring-1 ring-[#FCE4EC] hover:bg-[#fdf2f6]"
             )}
           >
             画像登録(1着)
@@ -1134,8 +1134,8 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
             className={classNames(
               "rounded-full px-4 py-2 text-sm font-medium transition",
               mode === "outfit"
-                ? "bg-neutral-900 text-white"
-                : "bg-white text-neutral-700 ring-1 ring-neutral-300 hover:bg-neutral-100"
+                ? "bg-[#605D62] text-white"
+                : "bg-white text-[#605D62] ring-1 ring-[#FCE4EC] hover:bg-[#fdf2f6]"
             )}
           >
             画像登録(まとめて)
@@ -1147,8 +1147,8 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
             className={classNames(
               "rounded-full px-4 py-2 text-sm font-medium transition",
               mode === "manual"
-                ? "bg-neutral-900 text-white"
-                : "bg-white text-neutral-700 ring-1 ring-neutral-300 hover:bg-neutral-100"
+                ? "bg-[#605D62] text-white"
+                : "bg-white text-[#605D62] ring-1 ring-[#FCE4EC] hover:bg-[#fdf2f6]"
             )}
           >
             手入力
@@ -1181,7 +1181,7 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
 
         {mode === "image" && (
           <div className="space-y-4">
-            <section className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-neutral-200 sm:p-5">
+            <section className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[#FCE4EC] sm:p-5">
               <h2 className="mb-4 text-lg font-semibold">画像から1着登録</h2>
 
               <label className="mb-4 flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 px-4 py-8 text-center hover:bg-neutral-100">
@@ -1191,7 +1191,7 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
               </label>
 
               {singlePreviewUrl && (
-                <div className="mb-4 overflow-hidden rounded-2xl ring-1 ring-neutral-200">
+                <div className="mb-4 overflow-hidden rounded-2xl ring-1 ring-[#FCE4EC]">
                   <img
                     src={singlePreviewUrl}
                     alt="preview"
@@ -1204,7 +1204,7 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
                 type="button"
                 onClick={handleAnalyzeSingleImage}
                 disabled={!singleFile || isAnalyzingSingle}
-                className="w-full rounded-2xl bg-neutral-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-300"
+                              className="w-full rounded-2xl bg-[#605D62] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#605D62]/90 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {isAnalyzingSingle ? "解析中..." : "AIで解析する"}
               </button>
@@ -1214,7 +1214,7 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
               </p>
             </section>
 
-            <section className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-neutral-200 sm:p-5">
+            <section className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[#FCE4EC] sm:p-5">
               <h2 className="mb-4 text-lg font-semibold">登録フォーム</h2>
 
               <div className="grid gap-4 :">
@@ -1393,7 +1393,7 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
                 type="button"
                 onClick={handleSaveSingle}
                 disabled={isSavingSingle}
-                className="mt-6 w-full rounded-2xl bg-neutral-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-300"
+                className="mt-6 w-full rounded-2xl bg-[#605D62] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#605D62]/90 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {isSavingSingle ? "保存中..." : "保存する"}
               </button>
@@ -1403,7 +1403,7 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
 
         {mode === "outfit" && (
           <div className="space-y-4">
-            <section className="space-y-4 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-neutral-200 sm:p-5">
+            <section className="space-y-4 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[#FCE4EC] sm:p-5">
               <div>
                 <h2 className="text-lg font-semibold">コーデ写真からまとめて登録</h2>
                 <p className="mt-1 text-sm text-neutral-500">
@@ -1418,7 +1418,7 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
               </label>
 
               {outfitPreviewUrl && (
-                <div className="overflow-hidden rounded-2xl ring-1 ring-neutral-200">
+                <div className="overflow-hidden rounded-2xl ring-1 ring-[#FCE4EC]">
                   <div className="relative">
                     <img src={outfitPreviewUrl} alt="outfit preview" className="h-auto w-full object-contain" />
                       {candidates.map((candidate) => {
@@ -1472,7 +1472,7 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
                 type="button"
                 onClick={handleAnalyzeOutfitPhoto}
                 disabled={!outfitFile || isAnalyzingOutfit}
-                className="w-full rounded-2xl bg-neutral-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-300"
+                className="w-full rounded-2xl bg-[#605D62] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#605D62]/90 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {isAnalyzingOutfit ? "解析中..." : "アイテム候補を抽出する"}
               </button>
@@ -1496,7 +1496,7 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
 
             </section>
 
-            <section className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-neutral-200 sm:p-5">
+            <section className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[#FCE4EC] sm:p-5">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold">認識候補一覧</h2>
                 <p className="text-sm text-neutral-500">
@@ -1579,7 +1579,7 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
                           candidate.ui.partiallyVisible ||
                           candidate.ui.overlapped ||
                           candidate.ui.ambiguousBoundary) && (
-                          <div className="mb-4 rounded-2xl bg-neutral-50 px-4 py-3 text-sm text-neutral-700 ring-1 ring-neutral-200">
+                          <div className="mb-4 rounded-2xl bg-neutral-50 px-4 py-3 text-sm text-neutral-700 ring-1 ring-[#FCE4EC]">
                             {candidate.ui.note && <p className="mb-2">{candidate.ui.note}</p>}
 
                             {candidate.ui.reasons.length > 0 && (
@@ -1893,7 +1893,7 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
                     type="button"
                     onClick={handleBulkSave}
                     disabled={isSavingBulk || selectedBulkCount === 0}
-                    className="w-full rounded-2xl bg-neutral-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-300"
+                    className="w-full rounded-2xl bg-[#605D62] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#605D62]/90 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {isSavingBulk ? "一括保存中..." : "選択した候補を保存"}
                   </button>
@@ -1905,7 +1905,7 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
         )}
 
         {mode === "manual" && (
-          <div className="mx-auto w-full max-w-2xl rounded-3xl bg-white p-4 shadow-sm ring-1 ring-neutral-200 sm:p-5">
+          <div className="mx-auto w-full max-w-2xl rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[#FCE4EC] sm:p-5">
             <h2 className="mb-4 text-lg font-semibold">手入力で登録</h2>
 
             <div className="grid gap-4 ">
@@ -2083,7 +2083,7 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
                 type="button"
                 onClick={handleSaveSingle}
                 disabled={isSavingSingle}
-              className="mt-6 w-full rounded-2xl bg-neutral-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-300"
+              className="mt-6 w-full rounded-2xl bg-[#605D62] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#605D62]/90 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {isSavingSingle ? "保存中..." : "保存する"}
             </button>

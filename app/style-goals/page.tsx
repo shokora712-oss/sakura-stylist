@@ -7,22 +7,17 @@ import StyleGoalsClient from "./StyleGoalsClient";
 
 export default async function StyleGoalsPage() {
   const session = await getServerSession(authOptions);
-
-  if (!session?.user?.id) {
-    redirect("/login");
-  }
+  if (!session?.user?.id) redirect("/login");
 
   return (
-    <main className="min-h-screen bg-[#fafafa] pb-24">
+    <main className="min-h-screen bg-[#fdf2f6] pb-24 text-[#605D62]">
       <div className="mx-auto max-w-md px-4 py-6">
         <AppHeader
-          title="なりたい系統を登録"
+          title="理想のスタイル"
           description="近づきたい雰囲気やファッションの方向性を設定できます。"
         />
-
         <StyleGoalsClient />
       </div>
-
       <BottomNav />
     </main>
   );
