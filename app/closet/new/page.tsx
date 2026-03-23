@@ -407,24 +407,47 @@ async function fileToDataUrl(file: File): Promise<string> {
 
 async function cropCandidateImage(
   imageDataUrl: string,
-  bbox: { x: number; y: number; w: number; h: number }
+  bbox: { x: number; y: number; w: number; h: number },
+  category?: string | null
 ): Promise<string | null> {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement("canvas");
-      const cropX = Math.floor(bbox.x * img.naturalWidth);
-      const cropY = Math.floor(bbox.y * img.naturalHeight);
-      const cropW = Math.floor(bbox.w * img.naturalWidth);
-      const cropH = Math.floor(bbox.h * img.naturalHeight);
+      let cropX = Math.floor(bbox.x * img.naturalWidth);
+      let cropY = Math.floor(bbox.y * img.naturalHeight);
+      let cropW = Math.floor(bbox.w * img.naturalWidth);
+      let cropH = Math.floor(bbox.h * img.naturalHeight);
 
       if (cropW <= 0 || cropH <= 0) {
         resolve(null);
         return;
       }
 
-      // 余白を少し足してクロップ（アイテムが端で切れないように）
-      const padding = 0.02;
+      // カテゴリ別の縦横比補正
+      if (category === "shoes") {
+        // 靴は縦横比が高くなりすぎないよう制限（高さは幅の1.5倍まで）
+        const maxH = Math.floor(cropW * 1.5);
+        if (cropH > maxH) {
+          cropY = cropY + Math.floor((cropH - maxH) / 2);
+          cropH = maxH;
+        }
+      } else if (category === "bag") {
+        // バッグは縦横比1:1.5まで
+        const maxH = Math.floor(cropW * 1.5);
+        if (cropH > maxH) {
+          cropY = cropY + Math.floor((cropH - maxH) / 4);
+          cropH = maxH;
+        }
+      } else if (category === "tops") {
+        // トップスは縦横比を2:1まで
+        const maxH = Math.floor(cropW * 2);
+        if (cropH > maxH) {
+          cropH = maxH;
+        }
+      }
+
+      const padding = 0.015;
       const padX = Math.floor(padding * img.naturalWidth);
       const padY = Math.floor(padding * img.naturalHeight);
 
@@ -730,7 +753,7 @@ async function mapCandidatesForUiWithCrop(
       let croppedImageUrl: string | null = null;
 
       if (candidate.bbox) {
-        const cropped = await cropCandidateImage(imageDataUrl, candidate.bbox);
+        const cropped = await cropCandidateImage(imageDataUrl, candidate.bbox, candidate.category);
         if (cropped) {
           croppedImageUrl = await uploadCroppedImage(cropped);
         }

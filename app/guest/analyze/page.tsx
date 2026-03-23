@@ -224,26 +224,66 @@ async function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-async function cropCandidateImage(imageDataUrl: string, bbox: { x: number; y: number; w: number; h: number }): Promise<string | null> {
+async function cropCandidateImage(
+  imageDataUrl: string,
+  bbox: { x: number; y: number; w: number; h: number },
+  category?: string | null
+): Promise<string | null> {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement("canvas");
-      const padding = 0.02;
+      let cropX = Math.floor(bbox.x * img.naturalWidth);
+      let cropY = Math.floor(bbox.y * img.naturalHeight);
+      let cropW = Math.floor(bbox.w * img.naturalWidth);
+      let cropH = Math.floor(bbox.h * img.naturalHeight);
+
+      if (cropW <= 0 || cropH <= 0) {
+        resolve(null);
+        return;
+      }
+
+      // カテゴリ別の縦横比補正
+      if (category === "shoes") {
+        // 靴は縦横比が高くなりすぎないよう制限（高さは幅の1.5倍まで）
+        const maxH = Math.floor(cropW * 1.5);
+        if (cropH > maxH) {
+          cropY = cropY + Math.floor((cropH - maxH) / 2);
+          cropH = maxH;
+        }
+      } else if (category === "bag") {
+        // バッグは縦横比1:1.5まで
+        const maxH = Math.floor(cropW * 1.5);
+        if (cropH > maxH) {
+          cropY = cropY + Math.floor((cropH - maxH) / 4);
+          cropH = maxH;
+        }
+      } else if (category === "tops") {
+        // トップスは縦横比を2:1まで
+        const maxH = Math.floor(cropW * 2);
+        if (cropH > maxH) {
+          cropH = maxH;
+        }
+      }
+
+      const padding = 0.015;
       const padX = Math.floor(padding * img.naturalWidth);
       const padY = Math.floor(padding * img.naturalHeight);
-      const cropX = Math.floor(bbox.x * img.naturalWidth);
-      const cropY = Math.floor(bbox.y * img.naturalHeight);
-      const cropW = Math.floor(bbox.w * img.naturalWidth);
-      const cropH = Math.floor(bbox.h * img.naturalHeight);
-      if (cropW <= 0 || cropH <= 0) { resolve(null); return; }
+
       const finalX = Math.max(0, cropX - padX);
       const finalY = Math.max(0, cropY - padY);
       const finalW = Math.min(img.naturalWidth - finalX, cropW + padX * 2);
       const finalH = Math.min(img.naturalHeight - finalY, cropH + padY * 2);
-      canvas.width = finalW; canvas.height = finalH;
+
+      canvas.width = finalW;
+      canvas.height = finalH;
+
       const ctx = canvas.getContext("2d");
-      if (!ctx) { resolve(null); return; }
+      if (!ctx) {
+        resolve(null);
+        return;
+      }
+
       ctx.drawImage(img, finalX, finalY, finalW, finalH, 0, 0, finalW, finalH);
       resolve(canvas.toDataURL("image/jpeg", 0.85));
     };
@@ -379,7 +419,7 @@ export default function GuestAnalyzePage() {
     return Promise.all(response.candidates.map(async (candidate) => {
       let croppedImageUrl: string | null = null;
       if (candidate.bbox) {
-        const cropped = await cropCandidateImage(imageDataUrl, candidate.bbox);
+        const cropped = await cropCandidateImage(imageDataUrl, candidate.bbox, candidate.category);
         if (cropped) croppedImageUrl = await uploadCroppedImage(cropped);
       }
       return {

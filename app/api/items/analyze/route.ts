@@ -187,7 +187,7 @@ IMPORTANT RULES:
 - bbox must tightly bound the item itself, not the surrounding body area.
 - Do not include head, arms, or torso when detecting tops.
 - For bottoms, include only the waist-to-hem region.
-- For shoes, bound the shoe itself, not the whole foot or leg.
+- For shoes, bound ONLY the shoe body (sole to toe/heel). Exclude legs, floor, and background entirely. The bbox height should be small relative to the full image.
 - For bags, focus on the bag body rather than the arm holding it.
 - bbox coordinates must be normalized between 0 and 1.
 - x,y represent top-left corner, w,h represent width and height.
@@ -224,10 +224,11 @@ IMPORTANT DETECTION RULES:
 - bbox must tightly bound the detected item itself as much as possible.
 - Prefer tighter bounding boxes rather than large loose ones.
 - Do not include unrelated body parts.
-- For tops, include the neckline, sleeves, and hem of the garment.
-- For bottoms, include the waist-to-hem region only.
-- For shoes, bound the shoe itself, not the whole foot or leg.
-- For bags, focus on the bag body rather than the arm or hand holding it.
+- For tops, include the neckline, sleeves, and hem of the garment. Exclude face, hands, and pants.
+- For bottoms, include the waist-to-hem region only. Exclude shoes and torso.
+- For shoes, bound ONLY the shoe body (sole to toe box). Exclude legs, floor, background. Keep bbox height small.
+- For bags, focus on the bag body only. Exclude arms, hands, and background.
+- bbox should be as tight as possible. When in doubt, make it smaller rather than larger.
 - If bbox is unclear, return null.
 - name must be a very short Japanese noun phrase. No punctuation. No sentences. Do not leave name as null if the item is clearly visible.
 - note and reasons must be written in Japanese, briefly.
@@ -317,6 +318,10 @@ IMPORTANT DETECTION RULES:
 - bbox values must be normalized between 0 and 1.
 - bbox must tightly bound the detected item itself.
 - If bbox is unclear, return null.
+- bbox should be as tight as possible around the item itself. Exclude body parts, floor, and background.
+- For shoes, bound only the shoe body, not legs or floor.
+- For tops, exclude face and lower body.
+- For bottoms, exclude torso and shoes.
 - note and reasons must be written briefly in Japanese.
 
 Expected JSON response:
