@@ -7,6 +7,7 @@ import BottomNav from "../components/BottomNav";
 import DeleteOutfitButton from "./DeleteOutfitButton";
 import AppHeader from "../components/AppHeader";
 import DailyLogSection from "./DailyLogSection";
+import { ChartBar, Heart } from "@phosphor-icons/react/dist/ssr";
 
 const CATEGORY_LABELS: Record<string, string> = {
   tops: "トップス", bottoms: "ボトムス", onepiece: "ワンピース",
@@ -86,7 +87,7 @@ export default async function LogsPage() {
 
         {allOutfits.length > 0 && (
           <section className="mb-8 rounded-3xl bg-white p-5 ring-1 ring-[#FCE4EC]">
-            <h2 className="mb-4 font-semibold">📊 コーデ分析</h2>
+            <h2 className="mb-4 flex items-center gap-2 font-semibold"><ChartBar size={20} color="#605D62" />コーデ分析</h2>
 
             {topItems.length > 0 && (
               <div className="mb-5">
@@ -147,7 +148,7 @@ export default async function LogsPage() {
 
         <section className="mb-8">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-semibold">♡ お気に入りコーデ</h2>
+            <h2 className="flex items-center gap-2 font-semibold"><Heart size={20} color="#605D62" />お気に入りコーデ</h2>
             <span className="text-xs text-[#605D62]/50">{favorites.length}件</span>
           </div>
 

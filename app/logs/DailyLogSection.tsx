@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { Camera, Plus } from "@phosphor-icons/react";
 
 type DailyLog = {
   id: string;
@@ -393,12 +394,12 @@ export default function DailyLogSection({ logs: initialLogs }: { logs: DailyLog[
   return (
     <section>
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="font-semibold">📷 日々のコーデ記録</h2>
+        <h2 className="flex items-center gap-2 font-semibold"><Camera size={20} color="#605D62" />日々のコーデ記録</h2>
         <div className="flex items-center gap-2">
           <span className="text-xs text-[#605D62]/50">{logs.length}件</span>
           <button type="button" onClick={() => setShowRecordModal(true)}
-            className="rounded-full bg-[#605D62] px-3 py-1.5 text-xs font-semibold text-white">
-            ＋ 記録する
+            className="flex items-center gap-1 rounded-full bg-[#605D62] px-3 py-1.5 text-xs font-semibold text-white">
+            <Plus size={14} weight="bold" />記録する
           </button>
         </div>
       </div>
