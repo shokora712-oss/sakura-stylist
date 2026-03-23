@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Providers from "./providers";
@@ -14,8 +14,29 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Closet AI",
-  description: "Closet AI",
+  title: "Sakura Stylist",
+  description: "AIがあなたのコーデをサポート。クローゼット管理・コーデ提案・スタイル分析をまとめて。",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Sakura Stylist",
+  },
+  formatDetection: {
+    telephone: false,
+  },
+  openGraph: {
+    type: "website",
+    title: "Sakura Stylist",
+    description: "AIがあなたのコーデをサポート",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#605D62",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale:1,
 };
 
 export default function RootLayout({
@@ -25,9 +46,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ja">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+      <head>
+        <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+      </head>
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <Providers>{children}</Providers>
       </body>
     </html>
