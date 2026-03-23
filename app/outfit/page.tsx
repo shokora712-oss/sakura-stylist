@@ -322,7 +322,7 @@ export default function OutfitPage() {
                     <p className="text-lg font-bold text-[#605D62]">
                       {weather.minTemp}℃〜{weather.maxTemp}℃
                     </p>
-                    <p className="text-xs text-[#605D62]/60">{weather.description}</p>
+                    <p className="text-xs text-[#605D62]/60">{weather.cityName} · {weather.description}</p>
                     {weather.isRainy && (
                       <span className="mt-0.5 inline-block rounded-full bg-[#E3F2FD] px-2 py-0.5 text-xs text-[#605D62]">
                         🌂 雨対策コーデを提案します
