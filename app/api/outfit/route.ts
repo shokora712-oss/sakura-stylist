@@ -51,6 +51,7 @@ type OutfitResult = {
     inspirationBonus: number;
     harmonyPenalty: number;
     styleHarmonyPenalty: number;
+    layeringBonus: number;
   };
   items: OutfitItem[];
   slotMap: OutfitSlotMap;
@@ -60,6 +61,12 @@ type UserStyleContext = {
   requestedStyle: string | null;
   favoriteStyle: string | null;
   targetStyle: string | null;
+};
+
+type WeatherSummary = {
+  minTemp: number;
+  maxTemp: number;
+  condition: string;
 };
 
 function normalizeText(value?: string | null) {
@@ -103,6 +110,9 @@ function buildSlotMap(items: OutfitItem[]): OutfitSlotMap {
 }
 
 function hasSeasonMatch(item: OutfitItem, minTemp: number, maxTemp: number) {
+  // バッグとシューズは季節チェックを免除
+  if (item.category === "bag" || item.category === "bags" || item.category === "shoes") return true;
+
   const avgTemp = (minTemp + maxTemp) / 2;
   const seasons = item.seasons ?? [];
 
@@ -910,6 +920,275 @@ async function enrichOutfitsWithLlmComments(
   return enriched;
 }
 
+function isBulkySleeveTop(item: OutfitItem) {
+  const name = normalizeText(item.name);
+  const sub = normalizeText(item.subcategory);
+
+  return (
+    name.includes("パフ") ||
+    name.includes("ボリュームスリーブ") ||
+    name.includes("バルーンスリーブ") ||
+    name.includes("フレアスリーブ") ||
+    sub === "blouse"
+  );
+}
+
+function isTightOuterLayerTop(item: OutfitItem) {
+  const name = normalizeText(item.name);
+  const sub = normalizeText(item.subcategory);
+
+  return (
+    sub === "knit" ||
+    name.includes("ニット") ||
+    name.includes("リブ") ||
+    name.includes("タイト")
+  );
+}
+
+function isOpenNeckOuterLayer(item: OutfitItem) {
+  const name = normalizeText(item.name);
+  const sub = normalizeText(item.subcategory);
+
+  return (
+    sub === "cardigan" ||
+    sub === "vest" ||
+    name.includes("カーデ") ||
+    name.includes("ベスト") ||
+    name.includes("vネック") ||
+    name.includes("v neck") ||
+    name.includes("ジレ")
+  );
+}
+
+function isClosedNeckOuterLayer(item: OutfitItem) {
+  const name = normalizeText(item.name);
+  const sub = normalizeText(item.subcategory);
+
+  return (
+    (sub === "knit" || sub === "sweat" || sub === "hoodie") &&
+    !isOpenNeckOuterLayer(item)
+  );
+}
+
+
+function scoreLayeringBonus(items: OutfitItem[], minTemp: number, maxTemp: number) {
+  const avgTemp = (minTemp + maxTemp) / 2;
+  const tops = items.filter((item) => item.category === "tops");
+
+  if (avgTemp > 18) return 0;
+  if (tops.length < 2) return 0;
+
+  const hasBaseLayer = tops.some((item) => isBaseLayerTop(item));
+  const hasOuterLayer = tops.some((item) => isOuterLayerTop(item));
+
+  if (hasBaseLayer && hasOuterLayer) return 2;
+
+  return 0;
+}
+
+
+function isExposureTop(item: OutfitItem) {
+  const name = normalizeText(item.name);
+  const sub = normalizeText(item.subcategory);
+
+  return (
+    name.includes("オフショル") ||
+    name.includes("肩空き") ||
+    name.includes("ノースリーブ") ||
+    name.includes("キャミ") ||
+    name.includes("ベア") ||
+    sub === "camisole"
+  );
+}
+
+function isBaseLayerTop(item: OutfitItem) {
+  const sub = normalizeText(item.subcategory);
+  const name = normalizeText(item.name);
+
+  if (isExposureTop(item)) return false;
+  // ニット・カーデ・ベストはインナーにならない
+  if (["knit", "cardigan", "vest"].includes(sub)) return false;
+  if (name.includes("ニット") || name.includes("カーデ") || name.includes("ベスト")) return false;
+
+  return (
+    ["shirt", "blouse", "tshirt"].includes(sub) ||
+    name.includes("シャツ") ||
+    name.includes("ブラウス") ||
+    name.includes("tシャツ") ||
+    name.includes("ロンt") ||
+    name.includes("長袖t") ||
+    name.includes("ハイネック") ||
+    name.includes("タートル") ||
+    name.includes("ボーダー") ||
+    name.includes("インナー")
+  );
+}
+
+function isOuterLayerTop(item: OutfitItem) {
+  const sub = normalizeText(item.subcategory);
+  const name = normalizeText(item.name);
+
+  if (isExposureTop(item)) return false;
+  // シャツ・ブラウスはアウター層にならない（インナー専用）
+  if (["blouse"].includes(sub)) return false;
+  if (name.includes("ブラウス")) return false;
+
+  return (
+    ["cardigan", "vest", "knit", "shirt"].includes(sub) ||
+    name.includes("カーデ") ||
+    name.includes("ベスト") ||
+    name.includes("ジレ") ||
+    name.includes("羽織") ||
+    name.includes("前開き") ||
+    name.includes("シャツ") ||
+    name.includes("ニット")
+  );
+}
+
+function isFrontOpenLayer(item: OutfitItem) {
+  const sub = normalizeText(item.subcategory);
+  const name = normalizeText(item.name);
+
+  return (
+    sub === "cardigan" ||
+    sub === "vest" ||
+    sub === "shirt" ||
+    name.includes("カーデ") ||
+    name.includes("ベスト") ||
+    name.includes("ジレ") ||
+    name.includes("前開き") ||
+    name.includes("シャツ")
+  );
+}
+
+function isHemLayerFriendly(item: OutfitItem) {
+  const sub = normalizeText(item.subcategory);
+  const name = normalizeText(item.name);
+
+  return (
+    sub === "sweat" ||
+    sub === "hoodie" ||
+    sub === "knit" ||
+    name.includes("スウェット") ||
+    name.includes("パーカー") ||
+    name.includes("ニット")
+  );
+}
+
+function isCollarLayerFriendly(item: OutfitItem) {
+  const sub = normalizeText(item.subcategory);
+  const name = normalizeText(item.name);
+
+  return (
+    sub === "knit" ||
+    sub === "cardigan" ||
+    name.includes("ニット") ||
+    name.includes("カーデ") ||
+    name.includes("vネック") ||
+    name.includes("クルーネック")
+  );
+}
+
+function hasSleeveConflict(primary: OutfitItem, secondary: OutfitItem) {
+  const secondaryName = normalizeText(secondary.name);
+  const secondarySub = normalizeText(secondary.subcategory);
+
+  const secondaryTightLike =
+    secondarySub === "knit" ||
+    secondaryName.includes("リブ") ||
+    secondaryName.includes("タイト");
+
+  if (isBulkySleeveTop(primary) && secondaryTightLike) {
+    return true;
+  }
+
+  return false;
+}
+
+function canVisibleLayer(primary: OutfitItem, secondary: OutfitItem) {
+  const primaryName = normalizeText(primary.name);
+  const primarySub = normalizeText(primary.subcategory);
+
+  const primaryHasCollar =
+    primarySub === "shirt" ||
+    primaryName.includes("シャツ") ||
+    primaryName.includes("ブラウス") ||
+    primaryName.includes("ハイネック") ||
+    primaryName.includes("タートル");
+
+  const primaryHasHemPresence =
+    primarySub === "tshirt" ||
+    primarySub === "shirt" ||
+    primarySub === "blouse" ||
+    primaryName.includes("tシャツ") ||
+    primaryName.includes("シャツ") ||
+    primaryName.includes("ボーダー");
+
+  // 前開きなら中が見える
+  if (isFrontOpenLayer(secondary)) return true;
+
+  // ニット/スウェット系でも、襟や裾が見えるタイプなら成立
+  if (isCollarLayerFriendly(secondary) && primaryHasCollar) return true;
+  if (isHemLayerFriendly(secondary) && primaryHasHemPresence) return true;
+
+  return false;
+}
+
+function canLayerTops(primary: OutfitItem, secondary: OutfitItem) {
+  if (primary.id === secondary.id) return false;
+
+  // 肌見せトップスを含む不自然レイヤードは禁止
+  if (isExposureTop(primary) || isExposureTop(secondary)) return false;
+
+  // 下はインナー向き、上は外側向き
+  if (!isBaseLayerTop(primary)) return false;
+  if (!isOuterLayerTop(secondary)) return false;
+
+  // 袖干渉NG
+  if (hasSleeveConflict(primary, secondary)) return false;
+
+  // シャツ×シャツのレイヤードはNG
+  const primaryIsShirt = ["shirt", "blouse"].includes(normalizeText(primary.subcategory));
+  const secondaryIsShirt = ["shirt", "blouse"].includes(normalizeText(secondary.subcategory));
+  if (primaryIsShirt && secondaryIsShirt) return false;
+
+  // ニットの上にシャツはNG（ニットはアウター層なので上に来ない）
+  const primaryIsKnit = normalizeText(primary.subcategory) === "knit" || normalizeText(primary.name).includes("ニット");
+  const secondaryIsShirtType = ["shirt"].includes(normalizeText(secondary.subcategory)) || normalizeText(secondary.name).includes("シャツ");
+  if (primaryIsKnit && secondaryIsShirtType) return false;
+
+  // どこかしら見える構造が必要
+  if (!canVisibleLayer(primary, secondary)) return false;
+
+  return true;
+}
+
+function passesLayeringRule(items: OutfitItem[], minTemp: number, maxTemp: number) {
+  const outer = items.find((item) => item.category === "outer");
+  if (!outer) return true;
+
+  const avgTemp = (minTemp + maxTemp) / 2;
+  if (avgTemp > 18) return true;
+
+  const tops = items.filter((item) => item.category === "tops");
+  const bottoms = items.filter((item) => item.category === "bottoms");
+  const onepieces = items.filter((item) => item.category === "onepiece");
+
+  const hasExposureTop = tops.some((item) => isExposureTop(item));
+  const hasWarmTopLayer = tops.some((item) => isOuterLayerTop(item));
+  const hasEnoughTopLayering = (tops.length >= 2 && hasWarmTopLayer) || !!outer;
+
+  // 肌見せ系トップスは寒い日に単独NG。ただしアウターかレイヤードがあればOK
+  if (hasExposureTop && !hasEnoughTopLayering) {
+    return false;
+  }
+
+  // ボトムス・ワンピースは事前フィルタリング済みなのでここではチェック不要
+  // バッグはレイヤード判定対象外
+
+  return true;
+}
+
 function buildOutfit(
   items: OutfitItem[],
   styleContext: UserStyleContext,
@@ -922,12 +1201,15 @@ function buildOutfit(
   const normalizedItems = items;
   const effectiveStyle = styleContext.requestedStyle ?? styleContext.favoriteStyle ?? null;
 
+  const layeringBonus = scoreLayeringBonus(normalizedItems, minTemp, maxTemp);
+
   const breakdown = {
     occasion: scoreOccasion(normalizedItems, requestedOccasion),
     style: scoreStyleMatch(normalizedItems, effectiveStyle),
     color: scoreColorBalance(normalizedItems),
     preference: scorePreference(normalizedItems, effectiveStyle),
     rewear: scoreRewear(normalizedItems),
+    layeringBonus: layeringBonus,
   };
 
   const setupBonus = scoreSetupBonus(normalizedItems);
@@ -976,6 +1258,7 @@ function buildOutfit(
     breakdown.color +
     breakdown.preference +
     breakdown.rewear +
+    breakdown.layeringBonus +
     setupBonus +
     suitBonus +
     moodCohesionBonus +
@@ -1075,22 +1358,23 @@ function filterItemsByOccasion(items: OutfitItem[], occasion: string | null) {
   return items.filter((item) => !isOfficeWearSubcategory(item));
 }
 
-function canLayerTops(primary: OutfitItem, secondary: OutfitItem) {
-  const primarySub = normalizeText(primary.subcategory);
-  const secondarySub = normalizeText(secondary.subcategory);
+function isInnerLayerTop(item: OutfitItem) {
+  const sub = normalizeText(item.subcategory);
+  return ["tshirt", "shirt", "blouse", "camisole"].includes(sub);
+}
 
-  const primaryInnerLike = ["tshirt", "shirt", "blouse", "camisole"].includes(primarySub);
-  const primaryLightLike = ["tshirt", "shirt", "blouse", "camisole", "knit"].includes(primarySub);
+function isWarmLayerTop(item: OutfitItem) {
+  const sub = normalizeText(item.subcategory);
+  const name = normalizeText(item.name);
 
-  const secondaryOuterTopLike = ["cardigan", "hoodie", "sweat", "knit", "shirt"].includes(
-    secondarySub
+  return (
+    ["knit", "cardigan", "hoodie", "sweat", "vest"].includes(sub) ||
+    name.includes("ニット") ||
+    name.includes("カーデ") ||
+    name.includes("パーカー") ||
+    name.includes("スウェット") ||
+    name.includes("ベスト")
   );
-
-  if (primary.id === secondary.id) return false;
-  if (!primaryInnerLike && !primaryLightLike) return false;
-  if (!secondaryOuterTopLike) return false;
-
-  return true;
 }
 
 function passesOccasionRule(items: OutfitItem[], occasion: string | null) {
@@ -1177,8 +1461,107 @@ function passesTemperatureRule(items: OutfitItem[], minTemp: number, maxTemp: nu
   return matched >= Math.max(1, items.length - 1);
 }
 
+function isTooLightForCold(item: OutfitItem) {
+  const seasons = item.seasons ?? [];
+  const name = normalizeText(item.name);
+  const sub = normalizeText(item.subcategory);
+  const category = item.category;
+
+  const isSpringSummerLike =
+    seasons.includes("summer") && !seasons.includes("winter");
+
+  if (category === "tops") {
+    const isLightTop =
+      name.includes("オフショル") ||
+      name.includes("ノースリーブ") ||
+      name.includes("キャミ") ||
+      name.includes("シアー") ||
+      name.includes("レース") ||
+      name.includes("透け") ||
+      name.includes("チュール") ||
+      sub === "camisole";
+
+    return isSpringSummerLike || isLightTop;
+  }
+
+  if (category === "bottoms") {
+    const isLightBottom =
+      name.includes("ショートパンツ") ||
+      name.includes("ミニスカート") ||
+      name.includes("ハーフパンツ") ||
+      name.includes("リネン") ||
+      sub === "shorts";
+
+    return isSpringSummerLike || isLightBottom;
+  }
+
+  if (category === "onepiece") {
+    const isLightOnepiece =
+      name.includes("ノースリーブ") ||
+      name.includes("キャミ") ||
+      name.includes("オフショル") ||
+      name.includes("シアー");
+
+    return isSpringSummerLike || isLightOnepiece;
+  }
+
+  return false;
+}
+
+function isWarmSupportTop(item: OutfitItem) {
+  const sub = normalizeText(item.subcategory);
+  const name = normalizeText(item.name);
+
+  return (
+    ["knit", "cardigan", "hoodie", "sweat", "vest"].includes(sub) ||
+    name.includes("ニット") ||
+    name.includes("カーデ") ||
+    name.includes("パーカー") ||
+    name.includes("スウェット") ||
+    name.includes("ベスト")
+  );
+}
+
+function passesShoeSeasonRule(items: OutfitItem[], minTemp: number, maxTemp: number) {
+  const shoes = items.find((item) => item.category === "shoes");
+  if (!shoes) return true;
+
+  const avgTemp = (minTemp + maxTemp) / 2;
+  const sub = normalizeText(shoes.subcategory);
+  const name = normalizeText(shoes.name);
+  const seasons = shoes.seasons ?? [];
+
+  const isSandals =
+    sub === "sandals" || name.includes("サンダル") || name.includes("sandals");
+
+  const isBoots =
+    sub === "boots" || name.includes("ブーツ") || name.includes("boots");
+
+  // 寒い日にサンダルは禁止
+  if (avgTemp <= 18 && isSandals) {
+    return false;
+  }
+
+  // 真夏日にブーツは基本避ける
+  if (avgTemp >= 26 && isBoots) {
+    return false;
+  }
+
+  // shoes に season が入ってるなら、それも尊重
+  if (seasons.length > 0) {
+    if (avgTemp <= 10 && !seasons.includes("winter")) return false;
+    if (avgTemp > 10 && avgTemp <= 18 && !(seasons.includes("autumn") || seasons.includes("spring") || seasons.includes("winter"))) return false;
+    if (avgTemp > 18 && avgTemp <= 25 && !(seasons.includes("spring") || seasons.includes("summer"))) return false;
+    if (avgTemp > 25 && !seasons.includes("summer")) return false;
+  }
+
+  return true;
+}
+
 function passesStyleConsistencyRule(items: OutfitItem[], occasion: string | null) {
   const top = items.find((item) => item.category === "tops");
+  const tops = items.filter((item) => item.category === "tops");
+  console.log("[styleConsistency] tops styles:", tops.map(t => ({ name: t.name, styles: t.styles })));
   const bottom = items.find((item) => item.category === "bottoms");
   const outer = items.find((item) => item.category === "outer");
   const shoes = items.find((item) => item.category === "shoes");
@@ -1195,7 +1578,7 @@ function passesStyleConsistencyRule(items: OutfitItem[], occasion: string | null
     outer &&
     (
       hasStyleValue(outer, "office") ||
-      ["jacket", "tailored_jacket", "coat"].includes(normalizeText(outer.subcategory)) ||
+      ["jacket", "tailored_jacket", "office_jacket"].includes(normalizeText(outer.subcategory)) ||
       outer.formality >= 4
     );
 
@@ -1263,14 +1646,14 @@ function passesStyleConsistencyRule(items: OutfitItem[], occasion: string | null
     );
 
   if (suitLikeUpperLower && shoesAreSneakers) return false;
-  if (outerOffice && shoesCasual) return false;
-  if (bottomOffice && shoesCasual) return false;
-  if (bagOffice && shoesStreet) return false;
-  if (bagOffice && shoesCasual && !shoesOffice) return false;
-  if (outerOffice && bottomStreet) return false;
-  if (outerOffice && bottomIsSweatLike) return false;
-  if (topFeminine && outerStreet) return false;
-  if (topFeminine && bottomStreet) return false;
+  if (outerOffice && shoesCasual) { console.log("[sc] outerOffice && shoesCasual"); return false; }
+  if (bottomOffice && shoesCasual) { console.log("[sc] bottomOffice && shoesCasual"); return false; }
+  if (bagOffice && shoesStreet) { console.log("[sc] bagOffice && shoesStreet"); return false; }
+  if (bagOffice && shoesCasual && !shoesOffice) { console.log("[sc] bagOffice && shoesCasual"); return false; }
+  if (outerOffice && bottomStreet) { console.log("[sc] outerOffice && bottomStreet"); return false; }
+  if (outerOffice && bottomIsSweatLike) { console.log("[sc] outerOffice && bottomIsSweatLike"); return false; }
+  if (topFeminine && outerStreet) { console.log("[sc] topFeminine && outerStreet"); return false; }
+  if (topFeminine && bottomStreet) { console.log("[sc] topFeminine && bottomStreet"); return false; }
 
   const officeCount = [topOffice, bottomOffice, outerOffice, shoesOffice, bagOffice].filter(Boolean).length;
   const streetCount = [bottomStreet, outerStreet, shoesStreet, bagStreet].filter(Boolean).length;
@@ -1308,13 +1691,58 @@ function passesHardRules(
   }
 
   const structureScore = scoreStructure(items);
-  if (structureScore <= 0) return false;
+  if (structureScore <= 0) {
+    console.log("[outfit] rejected: structure", items.map(i => i.category));
+    return false;
+  }
 
-  if (!passesTemperatureRule(items, minTemp, maxTemp)) return false;
-  if (!passesOccasionRule(items, occasion)) return false;
-  if (!passesStyleConsistencyRule(items, occasion)) return false;
+  if (!passesTemperatureRule(items, minTemp, maxTemp)) {
+    console.log("[outfit] rejected: temperature", items.map(i => `${i.category}:${i.seasons}`));
+    return false;
+  }
 
-  if (needsOuterByTemperature(minTemp, maxTemp) && !hasOuter(items)) {
+  // 寒い日（15℃以下）に春夏トップスはアウターかウォームレイヤーなしではNG
+  if (maxTemp <= 15) {
+    const tops = items.filter(i => i.category === "tops");
+    const hasColdInvalidTop = tops.some(top => {
+      // 季節タグで春夏のみのアイテム
+      const seasons = top.seasons ?? [];
+      const isSeasonInvalid = seasons.length > 0 &&
+        seasons.includes("summer") && !seasons.includes("autumn") && !seasons.includes("winter");
+      // 生地・素材が薄手系（季節タグ関係なく寒い日はNG）
+      const isMaterialLight = isTooLightForCold(top);
+      return isSeasonInvalid || isMaterialLight;
+    });
+    const hasWarmTopLayer = tops.some(top => isWarmSupportTop(top));
+    if (hasColdInvalidTop && !hasWarmTopLayer) return false;
+  }
+
+  if (!passesLayeringRule(items, minTemp, maxTemp)) {
+    console.log("[outfit] rejected: layering", items.map(i => ({
+      category: i.category,
+      name: i.name,
+      seasons: i.seasons,
+    })));
+    return false;
+  }
+
+  if (!passesShoeSeasonRule(items, minTemp, maxTemp)) {
+    console.log("[outfit] rejected: shoes", items.map(i => ({
+      category: i.category,
+      name: i.name,
+      subcategory: i.subcategory,
+      seasons: i.seasons,
+    })));
+    return false;
+  }
+
+  if (!passesOccasionRule(items, occasion)) {
+    console.log("[outfit] rejected: occasion", items.map(i => i.category));
+    return false;
+  }
+
+  if (!passesStyleConsistencyRule(items, occasion)) {
+    console.log("[outfit] rejected: styleConsistency", items.map(i => i.category));
     return false;
   }
 
@@ -1473,10 +1901,17 @@ export async function POST(req: Request) {
     const normalizedItems = items.map(normalizeItem);
     const candidateItems = filterItemsByOccasion(normalizedItems, occasion);
 
+    // トップス以外は最初から季節フィルタリング
     const tops = candidateItems.filter((item) => item.category === "tops");
-    const bottoms = candidateItems.filter((item) => item.category === "bottoms");
-    const onepieces = candidateItems.filter((item) => item.category === "onepiece");
-    const outers = candidateItems.filter((item) => item.category === "outer");
+    const bottoms = candidateItems.filter((item) => 
+      item.category === "bottoms" && hasSeasonMatch(item, minTemp, maxTemp)
+    );
+    const onepieces = candidateItems.filter((item) => 
+      item.category === "onepiece" && hasSeasonMatch(item, minTemp, maxTemp)
+    );
+    const outers = candidateItems.filter((item) => 
+      item.category === "outer" && hasSeasonMatch(item, minTemp, maxTemp)
+    );
     const shoes = candidateItems.filter((item) => item.category === "shoes");
     const bags = candidateItems.filter(
       (item) => item.category === "bag" || item.category === "bags"
