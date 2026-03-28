@@ -63,14 +63,22 @@ type UserStyleContext = {
   targetStyle: string | null;
 };
 
-type WeatherSummary = {
-  minTemp: number;
-  maxTemp: number;
-  condition: string;
+type CandidatePools = {
+  tops: OutfitItem[];
+  bottoms: OutfitItem[];
+  onepieces: OutfitItem[];
+  outers: OutfitItem[];
+  shoes: OutfitItem[];
+  bags: OutfitItem[];
 };
 
 function normalizeText(value?: string | null) {
   return (value ?? "").trim().toLowerCase();
+}
+
+function nameIncludes(item: OutfitItem | undefined, keyword: string) {
+  if (!item) return false;
+  return normalizeText(item.name).includes(normalizeText(keyword));
 }
 
 function normalizeItem(item: any): OutfitItem {
@@ -110,18 +118,36 @@ function buildSlotMap(items: OutfitItem[]): OutfitSlotMap {
 }
 
 function hasSeasonMatch(item: OutfitItem, minTemp: number, maxTemp: number) {
-  // バッグとシューズは季節チェックを免除
-  if (item.category === "bag" || item.category === "bags" || item.category === "shoes") return true;
+  if (item.category === "bag" || item.category === "bags" || item.category === "shoes") {
+    return true;
+  }
 
   const avgTemp = (minTemp + maxTemp) / 2;
   const seasons = item.seasons ?? [];
 
   if (!seasons.length) return true;
 
-  if (avgTemp <= 10) return seasons.includes("winter");
-  if (avgTemp <= 18) return seasons.includes("autumn") || seasons.includes("spring");
-  if (avgTemp <= 25) return seasons.includes("spring") || seasons.includes("summer");
-  return seasons.includes("summer");
+  const hasSpring = seasons.includes("spring");
+  const hasSummer = seasons.includes("summer");
+  const hasAutumn = seasons.includes("autumn");
+  const hasWinter = seasons.includes("winter");
+
+  const isSpringSummerOnly = (hasSpring || hasSummer) && !hasAutumn && !hasWinter;
+  if (isSpringSummerOnly && avgTemp <= 15) return false;
+
+  if (avgTemp <= 10) return hasWinter;
+  if (avgTemp <= 18) return hasAutumn || hasSpring;
+  if (avgTemp <= 25) return hasSpring || hasSummer;
+  return hasSummer;
+}
+
+function hasOuter(items: OutfitItem[]) {
+  return items.some((item) => item.category === "outer");
+}
+
+function needsOuterByTemperature(minTemp: number, maxTemp: number) {
+  const avgTemp = (minTemp + maxTemp) / 2;
+  return avgTemp <= 15;
 }
 
 const HIGH_HARMONY_PAIRS = new Set([
@@ -221,14 +247,6 @@ function scoreStyleMatch(items: OutfitItem[], requestedStyle: string | null) {
   return 0;
 }
 
-function scoreTemperature(items: OutfitItem[], minTemp: number, maxTemp: number) {
-  const matched = items.filter((item) => hasSeasonMatch(item, minTemp, maxTemp)).length;
-
-  if (matched === items.length) return 10;
-  if (matched >= Math.max(1, items.length - 1)) return 7;
-  return 4;
-}
-
 function scoreStructure(items: OutfitItem[]) {
   const tops = items.filter((item) => item.category === "tops");
   const hasTop = tops.length >= 1;
@@ -295,10 +313,14 @@ function isSuitLike(items: OutfitItem[]) {
   const bottomOffice = (bottom.styles ?? []).includes("office");
 
   const suitShape =
-    ["jacket", "tailored_jacket"].includes(outerSub) &&
-    bottomSub === "slacks";
+    ["jacket", "tailored_jacket", "office_jacket"].includes(outerSub) &&
+    ["slacks", "office_pants"].includes(bottomSub);
 
   return suitShape && sameColor && outerOffice && bottomOffice;
+}
+
+function isOfficeSuitLike(items: OutfitItem[]) {
+  return isSuitLike(items);
 }
 
 function scoreOccasion(items: OutfitItem[], occasion: string | null) {
@@ -318,7 +340,7 @@ function scoreOccasion(items: OutfitItem[], occasion: string | null) {
 
     const isOfficeLikeTop =
       (top &&
-        (hasSubValue(top, "shirt", "blouse") ||
+        (hasSubValue(top, "shirt", "blouse", "office_shirt") ||
           hasStyleValue(top, "office") ||
           top.formality >= 4)) ||
       (onepiece &&
@@ -326,13 +348,13 @@ function scoreOccasion(items: OutfitItem[], occasion: string | null) {
 
     const isFormalBottom =
       bottom &&
-      (hasSubValue(bottom, "slacks") ||
+      (hasSubValue(bottom, "slacks", "office_pants", "office_skirt") ||
         hasStyleValue(bottom, "office") ||
         bottom.formality >= 4);
 
     const isFormalOuter =
       outer &&
-      (hasSubValue(outer, "jacket", "tailored_jacket", "coat") ||
+      (hasSubValue(outer, "jacket", "tailored_jacket", "coat", "office_jacket") ||
         hasStyleValue(outer, "office") ||
         outer.formality >= 4);
 
@@ -378,7 +400,7 @@ function scoreOccasion(items: OutfitItem[], occasion: string | null) {
 
     const casualBag =
       bag &&
-      (hasSubValue(bag, "shoulder_bag", "tote_bag", "mini_bag") ||
+      (hasSubValue(bag, "shoulder_bag", "tote_bag", "mini_bag", "backpack") ||
         hasStyleValue(bag, "casual"));
 
     if (casualTop) score += 4;
@@ -638,14 +660,18 @@ function scoreHarmonyPenalty(items: OutfitItem[]) {
     outer &&
     (
       (outer.styles ?? []).includes("office") ||
-      ["jacket", "tailored_jacket", "coat"].includes(normalizeText(outer.subcategory)) ||
+      ["jacket", "tailored_jacket", "coat", "office_jacket"].includes(
+        normalizeText(outer.subcategory)
+      ) ||
       outer.formality >= 4
     );
 
   const bottomIsSweatLike =
     bottom &&
     (
-      ["sweat", "sweatpants", "jogger", "jogger_pants"].includes(normalizeText(bottom.subcategory)) ||
+      ["sweat", "sweatpants", "jogger", "jogger_pants"].includes(
+        normalizeText(bottom.subcategory)
+      ) ||
       normalizeText(bottom.name).includes("スウェット")
     );
 
@@ -670,7 +696,7 @@ function scoreHarmonyPenalty(items: OutfitItem[]) {
   const bottomIsFormal =
     bottom &&
     (
-      ["slacks"].includes(normalizeText(bottom.subcategory)) ||
+      ["slacks", "office_pants", "office_skirt"].includes(normalizeText(bottom.subcategory)) ||
       (bottom.styles ?? []).includes("office") ||
       bottom.formality >= 4
     );
@@ -722,10 +748,8 @@ function scoreStyleHarmonyPenalty(items: OutfitItem[]) {
   const hasClean = Boolean(counts["clean"]);
   const hasElegant = Boolean(counts["elegant"]);
   const hasSporty = Boolean(counts["sporty"]);
-  const hasNatural = Boolean(counts["natural"]);
-  const hasSimple = Boolean(counts["simple"]);
 
-if (hasOffice && hasStreet) penalty += 6;
+  if (hasOffice && hasStreet) penalty += 6;
   if (hasStreet && hasFeminine) penalty += 4;
   if (hasStreet && hasGirly) penalty += 4;
   if (hasStreet && hasElegant) penalty += 4;
@@ -785,6 +809,83 @@ function scoreMoodCohesionBonus(items: OutfitItem[]) {
   if (isSuitLike(items)) bonus += 2;
 
   return Math.min(bonus, 12);
+}
+
+function isExposureTop(item: OutfitItem) {
+  const name = normalizeText(item.name);
+  const sub = normalizeText(item.subcategory);
+
+  return (
+    name.includes("オフショル") ||
+    name.includes("肩空き") ||
+    name.includes("ノースリーブ") ||
+    name.includes("キャミ") ||
+    name.includes("ベア") ||
+    sub === "camisole"
+  );
+}
+
+function isBaseLayerTop(item: OutfitItem) {
+  const sub = normalizeText(item.subcategory);
+  const name = normalizeText(item.name);
+
+  if (isExposureTop(item)) return false;
+  if (["knit", "cardigan", "vest"].includes(sub)) return false;
+  if (name.includes("ニット") || name.includes("カーデ") || name.includes("ベスト")) {
+    return false;
+  }
+
+  return ["shirt", "blouse", "tshirt", "office_shirt"].includes(sub);
+}
+
+function isOuterLayerTop(item: OutfitItem) {
+  const sub = normalizeText(item.subcategory);
+  const name = normalizeText(item.name);
+
+  return (
+    ["knit", "cardigan", "hoodie", "sweat", "vest"].includes(sub) ||
+    name.includes("ニット") ||
+    name.includes("カーデ") ||
+    name.includes("ベスト") ||
+    name.includes("パーカー") ||
+    name.includes("スウェット")
+  );
+}
+
+function canLayerTops(primary: OutfitItem, secondary: OutfitItem) {
+  if (primary.id === secondary.id) return false;
+  if (isExposureTop(primary) || isExposureTop(secondary)) return false;
+
+  const primaryIsBase = isBaseLayerTop(primary);
+  const secondaryIsOuter = isOuterLayerTop(secondary);
+
+  if (primaryIsBase && secondaryIsOuter) return true;
+
+  const primarySub = normalizeText(primary.subcategory);
+  const secondarySub = normalizeText(secondary.subcategory);
+
+  if (
+    ["shirt", "blouse", "office_shirt", "tshirt"].includes(primarySub) &&
+    ["knit", "cardigan", "vest", "hoodie", "sweat"].includes(secondarySub)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function scoreLayeringBonus(items: OutfitItem[], minTemp: number, maxTemp: number) {
+  const avgTemp = (minTemp + maxTemp) / 2;
+  const tops = items.filter((item) => item.category === "tops");
+
+  if (avgTemp > 18) return 0;
+  if (tops.length < 2) return 0;
+
+  const hasBaseLayer = tops.some((item) => isBaseLayerTop(item));
+  const hasOuterLayer = tops.some((item) => isOuterLayerTop(item));
+
+  if (hasBaseLayer && hasOuterLayer) return 2;
+  return 0;
 }
 
 function buildReasons(
@@ -859,8 +960,7 @@ async function enrichOutfitsWithLlmComments(
           messages: [
             {
               role: "system",
-              content:
-                "あなたは日本語のAIスタイリストです。必ずJSONのみ返してください。",
+              content: "あなたは日本語のAIスタイリストです。必ずJSONのみ返してください。",
             },
             {
               role: "user",
@@ -920,714 +1020,82 @@ async function enrichOutfitsWithLlmComments(
   return enriched;
 }
 
-function isBulkySleeveTop(item: OutfitItem) {
-  const name = normalizeText(item.name);
-  const sub = normalizeText(item.subcategory);
-
-  return (
-    name.includes("パフ") ||
-    name.includes("ボリュームスリーブ") ||
-    name.includes("バルーンスリーブ") ||
-    name.includes("フレアスリーブ") ||
-    sub === "blouse"
-  );
-}
-
-function isTightOuterLayerTop(item: OutfitItem) {
-  const name = normalizeText(item.name);
-  const sub = normalizeText(item.subcategory);
-
-  return (
-    sub === "knit" ||
-    name.includes("ニット") ||
-    name.includes("リブ") ||
-    name.includes("タイト")
-  );
-}
-
-function isOpenNeckOuterLayer(item: OutfitItem) {
-  const name = normalizeText(item.name);
-  const sub = normalizeText(item.subcategory);
-
-  return (
-    sub === "cardigan" ||
-    sub === "vest" ||
-    name.includes("カーデ") ||
-    name.includes("ベスト") ||
-    name.includes("vネック") ||
-    name.includes("v neck") ||
-    name.includes("ジレ")
-  );
-}
-
-function isClosedNeckOuterLayer(item: OutfitItem) {
-  const name = normalizeText(item.name);
-  const sub = normalizeText(item.subcategory);
-
-  return (
-    (sub === "knit" || sub === "sweat" || sub === "hoodie") &&
-    !isOpenNeckOuterLayer(item)
-  );
-}
-
-
-function scoreLayeringBonus(items: OutfitItem[], minTemp: number, maxTemp: number) {
-  const avgTemp = (minTemp + maxTemp) / 2;
-  const tops = items.filter((item) => item.category === "tops");
-
-  if (avgTemp > 18) return 0;
-  if (tops.length < 2) return 0;
-
-  const hasBaseLayer = tops.some((item) => isBaseLayerTop(item));
-  const hasOuterLayer = tops.some((item) => isOuterLayerTop(item));
-
-  if (hasBaseLayer && hasOuterLayer) return 2;
-
-  return 0;
-}
-
-
-function isExposureTop(item: OutfitItem) {
-  const name = normalizeText(item.name);
-  const sub = normalizeText(item.subcategory);
-
-  return (
-    name.includes("オフショル") ||
-    name.includes("肩空き") ||
-    name.includes("ノースリーブ") ||
-    name.includes("キャミ") ||
-    name.includes("ベア") ||
-    sub === "camisole"
-  );
-}
-
-function isBaseLayerTop(item: OutfitItem) {
-  const sub = normalizeText(item.subcategory);
-  const name = normalizeText(item.name);
-
-  if (isExposureTop(item)) return false;
-  // ニット・カーデ・ベストはインナーにならない
-  if (["knit", "cardigan", "vest"].includes(sub)) return false;
-  if (name.includes("ニット") || name.includes("カーデ") || name.includes("ベスト")) return false;
-
-  return (
-    ["shirt", "blouse", "tshirt"].includes(sub) ||
-    name.includes("シャツ") ||
-    name.includes("ブラウス") ||
-    name.includes("tシャツ") ||
-    name.includes("ロンt") ||
-    name.includes("長袖t") ||
-    name.includes("ハイネック") ||
-    name.includes("タートル") ||
-    name.includes("ボーダー") ||
-    name.includes("インナー")
-  );
-}
-
-function isOuterLayerTop(item: OutfitItem) {
-  const sub = normalizeText(item.subcategory);
-  const name = normalizeText(item.name);
-
-  if (isExposureTop(item)) return false;
-  // シャツ・ブラウスはアウター層にならない（インナー専用）
-  if (["blouse"].includes(sub)) return false;
-  if (name.includes("ブラウス")) return false;
-
-  return (
-    ["cardigan", "vest", "knit", "shirt"].includes(sub) ||
-    name.includes("カーデ") ||
-    name.includes("ベスト") ||
-    name.includes("ジレ") ||
-    name.includes("羽織") ||
-    name.includes("前開き") ||
-    name.includes("シャツ") ||
-    name.includes("ニット")
-  );
-}
-
-function isFrontOpenLayer(item: OutfitItem) {
-  const sub = normalizeText(item.subcategory);
-  const name = normalizeText(item.name);
-
-  return (
-    sub === "cardigan" ||
-    sub === "vest" ||
-    sub === "shirt" ||
-    name.includes("カーデ") ||
-    name.includes("ベスト") ||
-    name.includes("ジレ") ||
-    name.includes("前開き") ||
-    name.includes("シャツ")
-  );
-}
-
-function isHemLayerFriendly(item: OutfitItem) {
-  const sub = normalizeText(item.subcategory);
-  const name = normalizeText(item.name);
-
-  return (
-    sub === "sweat" ||
-    sub === "hoodie" ||
-    sub === "knit" ||
-    name.includes("スウェット") ||
-    name.includes("パーカー") ||
-    name.includes("ニット")
-  );
-}
-
-function isCollarLayerFriendly(item: OutfitItem) {
-  const sub = normalizeText(item.subcategory);
-  const name = normalizeText(item.name);
-
-  return (
-    sub === "knit" ||
-    sub === "cardigan" ||
-    name.includes("ニット") ||
-    name.includes("カーデ") ||
-    name.includes("vネック") ||
-    name.includes("クルーネック")
-  );
-}
-
-function hasSleeveConflict(primary: OutfitItem, secondary: OutfitItem) {
-  const secondaryName = normalizeText(secondary.name);
-  const secondarySub = normalizeText(secondary.subcategory);
-
-  const secondaryTightLike =
-    secondarySub === "knit" ||
-    secondaryName.includes("リブ") ||
-    secondaryName.includes("タイト");
-
-  if (isBulkySleeveTop(primary) && secondaryTightLike) {
-    return true;
-  }
-
-  return false;
-}
-
-function canVisibleLayer(primary: OutfitItem, secondary: OutfitItem) {
-  const primaryName = normalizeText(primary.name);
-  const primarySub = normalizeText(primary.subcategory);
-
-  const primaryHasCollar =
-    primarySub === "shirt" ||
-    primaryName.includes("シャツ") ||
-    primaryName.includes("ブラウス") ||
-    primaryName.includes("ハイネック") ||
-    primaryName.includes("タートル");
-
-  const primaryHasHemPresence =
-    primarySub === "tshirt" ||
-    primarySub === "shirt" ||
-    primarySub === "blouse" ||
-    primaryName.includes("tシャツ") ||
-    primaryName.includes("シャツ") ||
-    primaryName.includes("ボーダー");
-
-  // 前開きなら中が見える
-  if (isFrontOpenLayer(secondary)) return true;
-
-  // ニット/スウェット系でも、襟や裾が見えるタイプなら成立
-  if (isCollarLayerFriendly(secondary) && primaryHasCollar) return true;
-  if (isHemLayerFriendly(secondary) && primaryHasHemPresence) return true;
-
-  return false;
-}
-
-function canLayerTops(primary: OutfitItem, secondary: OutfitItem) {
-  if (primary.id === secondary.id) return false;
-
-  // 肌見せトップスを含む不自然レイヤードは禁止
-  if (isExposureTop(primary) || isExposureTop(secondary)) return false;
-
-  // 下はインナー向き、上は外側向き
-  if (!isBaseLayerTop(primary)) return false;
-  if (!isOuterLayerTop(secondary)) return false;
-
-  // 袖干渉NG
-  if (hasSleeveConflict(primary, secondary)) return false;
-
-  // シャツ×シャツのレイヤードはNG
-  const primaryIsShirt = ["shirt", "blouse"].includes(normalizeText(primary.subcategory));
-  const secondaryIsShirt = ["shirt", "blouse"].includes(normalizeText(secondary.subcategory));
-  if (primaryIsShirt && secondaryIsShirt) return false;
-
-  // ニットの上にシャツはNG（ニットはアウター層なので上に来ない）
-  const primaryIsKnit = normalizeText(primary.subcategory) === "knit" || normalizeText(primary.name).includes("ニット");
-  const secondaryIsShirtType = ["shirt"].includes(normalizeText(secondary.subcategory)) || normalizeText(secondary.name).includes("シャツ");
-  if (primaryIsKnit && secondaryIsShirtType) return false;
-
-  // どこかしら見える構造が必要
-  if (!canVisibleLayer(primary, secondary)) return false;
-
-  return true;
-}
-
-function passesLayeringRule(items: OutfitItem[], minTemp: number, maxTemp: number) {
-  const outer = items.find((item) => item.category === "outer");
-  if (!outer) return true;
-
-  const avgTemp = (minTemp + maxTemp) / 2;
-  if (avgTemp > 18) return true;
-
-  const tops = items.filter((item) => item.category === "tops");
-  const bottoms = items.filter((item) => item.category === "bottoms");
-  const onepieces = items.filter((item) => item.category === "onepiece");
-
-  const hasExposureTop = tops.some((item) => isExposureTop(item));
-  const hasWarmTopLayer = tops.some((item) => isOuterLayerTop(item));
-  const hasEnoughTopLayering = (tops.length >= 2 && hasWarmTopLayer) || !!outer;
-
-  // 肌見せ系トップスは寒い日に単独NG。ただしアウターかレイヤードがあればOK
-  if (hasExposureTop && !hasEnoughTopLayering) {
+function passesTemperatureRule(items: OutfitItem[], minTemp: number, maxTemp: number) {
+  if (needsOuterByTemperature(minTemp, maxTemp) && !hasOuter(items)) {
     return false;
   }
 
-  // ボトムス・ワンピースは事前フィルタリング済みなのでここではチェック不要
-  // バッグはレイヤード判定対象外
-
-  return true;
-}
-
-function buildOutfit(
-  items: OutfitItem[],
-  styleContext: UserStyleContext,
-  requestedOccasion: string | null,
-  prioritizeVersatility: boolean,
-  minTemp: number,
-  maxTemp: number,
-  fixedItemName?: string | null
-): OutfitResult {
-  const normalizedItems = items;
-  const effectiveStyle = styleContext.requestedStyle ?? styleContext.favoriteStyle ?? null;
-
-  const layeringBonus = scoreLayeringBonus(normalizedItems, minTemp, maxTemp);
-
-  const breakdown = {
-    occasion: scoreOccasion(normalizedItems, requestedOccasion),
-    style: scoreStyleMatch(normalizedItems, effectiveStyle),
-    color: scoreColorBalance(normalizedItems),
-    preference: scorePreference(normalizedItems, effectiveStyle),
-    rewear: scoreRewear(normalizedItems),
-    layeringBonus: layeringBonus,
-  };
-
-  const setupBonus = scoreSetupBonus(normalizedItems);
-  const suitBonus = scoreSuitBonus(normalizedItems, requestedOccasion);
-  const moodCohesionBonus = scoreMoodCohesionBonus(normalizedItems);
-
-  const versatilityBonus =
-    requestedOccasion === "travel" && prioritizeVersatility
-      ? scoreVersatility(normalizedItems)
-      : 0;
-
-  const favoriteStyleBonus = scoreFavoriteStyleBonus(
-    normalizedItems,
-    styleContext.favoriteStyle
+  const coreItems = items.filter(
+    (item) => item.category !== "bag" && item.category !== "bags"
   );
 
-  const targetStyleBonus = scoreTargetStyleBonus(
-    normalizedItems,
-    styleContext.targetStyle
-  );
-
-  const inspirationBonus = scoreInspirationBonus(
-    normalizedItems,
-    styleContext.targetStyle
-  );
-
-  const harmonyPenalty = scoreHarmonyPenalty(normalizedItems);
-  const styleHarmonyPenalty = scoreStyleHarmonyPenalty(normalizedItems);
-
-  const fullBreakdown: OutfitResult["breakdown"] = {
-    ...breakdown,
-    setupBonus,
-    suitBonus,
-    moodCohesionBonus,
-    versatilityBonus,
-    favoriteStyleBonus,
-    targetStyleBonus,
-    inspirationBonus,
-    harmonyPenalty,
-    styleHarmonyPenalty,
-  };
-
-  const score =
-    breakdown.occasion +
-    breakdown.style +
-    breakdown.color +
-    breakdown.preference +
-    breakdown.rewear +
-    breakdown.layeringBonus +
-    setupBonus +
-    suitBonus +
-    moodCohesionBonus +
-    versatilityBonus +
-    favoriteStyleBonus +
-    targetStyleBonus +
-    inspirationBonus -
-    harmonyPenalty -
-    styleHarmonyPenalty;
-
-  return {
-    rank: 0,
-    score: Math.max(0, Math.round(score)),
-    reasons: buildReasons(score, fullBreakdown, fixedItemName, normalizedItems),
-    breakdown: fullBreakdown,
-    items: normalizedItems,
-    slotMap: buildSlotMap(normalizedItems),
-  };
-}
-
-function uniqueByKey<T>(arr: T[], getKey: (item: T) => string) {
-  const map = new Map<string, T>();
-  for (const item of arr) {
-    map.set(getKey(item), item);
-  }
-  return Array.from(map.values());
-}
-
-function needsOuterByTemperature(minTemp: number, maxTemp: number) {
-  return maxTemp <= 15;
-}
-
-function hasOuter(items: OutfitItem[]) {
-  return items.some((item) => item.category === "outer");
-}
-
-function hasSubcategory(item: OutfitItem, ...values: string[]) {
-  const sub = normalizeText(item.subcategory);
-  return values.some((value) => sub === normalizeText(value));
-}
-
-function nameIncludes(item: OutfitItem, ...keywords: string[]) {
-  const name = normalizeText(item.name);
-  return keywords.some((keyword) => name.includes(normalizeText(keyword)));
-}
-
-function hasStyle(items: OutfitItem[], ...values: string[]) {
-  return items.some((item) =>
-    (item.styles ?? []).some((style) =>
-      values.some((value) => normalizeText(style) === normalizeText(value))
-    )
-  );
-}
-
-function hasOnlyOfficeStyle(item: OutfitItem | undefined) {
-  if (!item) return false;
-
-  const styles = (item.styles ?? [])
-    .map((style) => normalizeText(style))
-    .filter(Boolean);
-
-  if (styles.length === 0) return false;
-
-  return styles.length === 1 && styles[0] === "office";
-}
-
-function isOfficeWearSubcategory(item: OutfitItem | undefined) {
-  if (!item) return false;
-
-  return hasSubcategory(
-    item,
-    "office_jacket",
-    "office_pants",
-    "office_skirt",
-    "office_shirt"
-  );
-}
-
-function isOfficeSuitLike(items: OutfitItem[]) {
-  const top = items.find((item) => item.category === "tops");
-  const bottom = items.find((item) => item.category === "bottoms");
-  const outer = items.find((item) => item.category === "outer");
-
-  if (!top || !bottom || !outer) return false;
-
-  const isOfficeTop = hasSubcategory(top, "office_shirt");
-  const isOfficeBottom = hasSubcategory(bottom, "office_pants", "office_skirt");
-  const isOfficeOuter = hasSubcategory(outer, "office_jacket");
-
-  return isOfficeTop && isOfficeBottom && isOfficeOuter;
-}
-
-function filterItemsByOccasion(items: OutfitItem[], occasion: string | null) {
-  if (occasion === "office" || occasion === "formal") {
-    return items;
-  }
-  return items.filter((item) => !isOfficeWearSubcategory(item));
-}
-
-function isInnerLayerTop(item: OutfitItem) {
-  const sub = normalizeText(item.subcategory);
-  return ["tshirt", "shirt", "blouse", "camisole"].includes(sub);
-}
-
-function isWarmLayerTop(item: OutfitItem) {
-  const sub = normalizeText(item.subcategory);
-  const name = normalizeText(item.name);
-
-  return (
-    ["knit", "cardigan", "hoodie", "sweat", "vest"].includes(sub) ||
-    name.includes("ニット") ||
-    name.includes("カーデ") ||
-    name.includes("パーカー") ||
-    name.includes("スウェット") ||
-    name.includes("ベスト")
-  );
+  return coreItems.every((item) => hasSeasonMatch(item, minTemp, maxTemp));
 }
 
 function passesOccasionRule(items: OutfitItem[], occasion: string | null) {
   if (!occasion) return true;
 
-  const hasDenim = items.some(
-    (item) => hasSubcategory(item, "denim") || nameIncludes(item, "デニム", "denim")
-  );
-
-  const hasSneakers = items.some(
-    (item) =>
-      item.category === "shoes" &&
-      (hasSubcategory(item, "sneaker", "sneakers") ||
-        nameIncludes(item, "スニーカー", "sneaker", "sneakers"))
-  );
-
-  const hasSweatBottoms = items.some(
-    (item) =>
-      item.category === "bottoms" &&
-      (hasSubcategory(item, "sweat", "sweatpants", "jogger", "jogger_pants") ||
-        nameIncludes(item, "スウェット", "ジョガー"))
-  );
-
-  const hasStreetStyle = hasStyle(items, "street");
-  const avgFormality =
-    items.reduce((sum, item) => sum + (item.formality ?? 3), 0) /
-    Math.max(items.length, 1);
-
-  const officeWearCount = items.filter((item) => isOfficeWearSubcategory(item)).length;
-  const officeSuitLike = isOfficeSuitLike(items);
-
-  if (occasion === "formal") {
-    if (hasDenim) return false;
-    if (hasSneakers) return false;
-    if (hasSweatBottoms) return false;
-    if (hasStreetStyle) return false;
-    if (avgFormality < 3.5) return false;
-    if (officeSuitLike) return false;
-    return true;
-  }
-
-  if (occasion === "office") {
-    if (hasSneakers) return false;
-    if (hasSweatBottoms) return false;
-    if (hasStreetStyle) return false;
-    if (avgFormality < 2.5) return false;
-    if (officeSuitLike) return false;
-    return true;
-  }
-
-  if (occasion === "casual") {
-    if (officeWearCount > 0) return false;
-    if (avgFormality >= 4.2) return false;
-    return true;
-  }
-
-  if (occasion === "date") {
-    if (officeWearCount > 0) return false;
-    if (hasStreetStyle && avgFormality <= 1.5) return false;
-    if (avgFormality >= 4.2) return false;
-    return true;
-  }
-
-  if (occasion === "travel") {
-    if (officeWearCount > 0) return false;
-    if (avgFormality >= 3.8) return false;
-
-    const hasHardToWalkShoes = items.some(
-      (item) =>
-        item.category === "shoes" &&
-        (hasSubcategory(item, "heels", "pumps") ||
-          nameIncludes(item, "ヒール", "パンプス"))
-    );
-
-    if (hasHardToWalkShoes) return false;
-    return true;
-  }
-
-  return true;
-}
-
-function passesTemperatureRule(items: OutfitItem[], minTemp: number, maxTemp: number) {
-  const matched = items.filter((item) => hasSeasonMatch(item, minTemp, maxTemp)).length;
-  return matched >= Math.max(1, items.length - 1);
-}
-
-function isTooLightForCold(item: OutfitItem) {
-  const seasons = item.seasons ?? [];
-  const name = normalizeText(item.name);
-  const sub = normalizeText(item.subcategory);
-  const category = item.category;
-
-  const isSpringSummerLike =
-    seasons.includes("summer") && !seasons.includes("winter");
-
-  if (category === "tops") {
-    const isLightTop =
-      name.includes("オフショル") ||
-      name.includes("ノースリーブ") ||
-      name.includes("キャミ") ||
-      name.includes("シアー") ||
-      name.includes("レース") ||
-      name.includes("透け") ||
-      name.includes("チュール") ||
-      sub === "camisole";
-
-    return isSpringSummerLike || isLightTop;
-  }
-
-  if (category === "bottoms") {
-    const isLightBottom =
-      name.includes("ショートパンツ") ||
-      name.includes("ミニスカート") ||
-      name.includes("ハーフパンツ") ||
-      name.includes("リネン") ||
-      sub === "shorts";
-
-    return isSpringSummerLike || isLightBottom;
-  }
-
-  if (category === "onepiece") {
-    const isLightOnepiece =
-      name.includes("ノースリーブ") ||
-      name.includes("キャミ") ||
-      name.includes("オフショル") ||
-      name.includes("シアー");
-
-    return isSpringSummerLike || isLightOnepiece;
-  }
-
-  return false;
-}
-
-function isWarmSupportTop(item: OutfitItem) {
-  const sub = normalizeText(item.subcategory);
-  const name = normalizeText(item.name);
-
-  return (
-    ["knit", "cardigan", "hoodie", "sweat", "vest"].includes(sub) ||
-    name.includes("ニット") ||
-    name.includes("カーデ") ||
-    name.includes("パーカー") ||
-    name.includes("スウェット") ||
-    name.includes("ベスト")
-  );
-}
-
-function passesShoeSeasonRule(items: OutfitItem[], minTemp: number, maxTemp: number) {
-  const shoes = items.find((item) => item.category === "shoes");
-  if (!shoes) return true;
-
-  const avgTemp = (minTemp + maxTemp) / 2;
-  const sub = normalizeText(shoes.subcategory);
-  const name = normalizeText(shoes.name);
-  const seasons = shoes.seasons ?? [];
-
-  const isSandals =
-    sub === "sandals" || name.includes("サンダル") || name.includes("sandals");
-
-  const isBoots =
-    sub === "boots" || name.includes("ブーツ") || name.includes("boots");
-
-  // 寒い日にサンダルは禁止
-  if (avgTemp <= 18 && isSandals) {
-    return false;
-  }
-
-  // 真夏日にブーツは基本避ける
-  if (avgTemp >= 26 && isBoots) {
-    return false;
-  }
-
-  // shoes に season が入ってるなら、それも尊重
-  if (seasons.length > 0) {
-    if (avgTemp <= 10 && !seasons.includes("winter")) return false;
-    if (avgTemp > 10 && avgTemp <= 18 && !(seasons.includes("autumn") || seasons.includes("spring") || seasons.includes("winter"))) return false;
-    if (avgTemp > 18 && avgTemp <= 25 && !(seasons.includes("spring") || seasons.includes("summer"))) return false;
-    if (avgTemp > 25 && !seasons.includes("summer")) return false;
-  }
-
-  return true;
-}
-
-function passesStyleConsistencyRule(items: OutfitItem[], occasion: string | null) {
   const top = items.find((item) => item.category === "tops");
-  const tops = items.filter((item) => item.category === "tops");
-  console.log("[styleConsistency] tops styles:", tops.map(t => ({ name: t.name, styles: t.styles })));
   const bottom = items.find((item) => item.category === "bottoms");
   const outer = items.find((item) => item.category === "outer");
   const shoes = items.find((item) => item.category === "shoes");
   const bag = items.find((item) => item.category === "bag" || item.category === "bags");
 
   const topOffice = top && hasStyleValue(top, "office");
-  const topFeminine = top && hasStyleValue(top, "feminine", "girly");
   const topCasual = top && hasStyleValue(top, "casual");
-  const bottomOffice = bottom && hasStyleValue(bottom, "office");
+  const topFeminine = top && hasStyleValue(top, "feminine", "girly");
+
+  const bottomOffice =
+    bottom &&
+    (hasStyleValue(bottom, "office") ||
+      hasSubValue(bottom, "slacks", "office_pants", "office_skirt") ||
+      bottom.formality >= 4);
+
   const bottomStreet = bottom && hasStyleValue(bottom, "street");
   const bottomCasual = bottom && hasStyleValue(bottom, "casual");
+  const bottomIsSweatLike =
+    bottom &&
+    (hasSubValue(bottom, "sweatpants") || nameIncludes(bottom, "スウェット"));
 
   const outerOffice =
     outer &&
-    (
-      hasStyleValue(outer, "office") ||
-      ["jacket", "tailored_jacket", "office_jacket"].includes(normalizeText(outer.subcategory)) ||
-      outer.formality >= 4
-    );
+    (hasStyleValue(outer, "office") ||
+      hasSubValue(outer, "jacket", "tailored_jacket", "office_jacket") ||
+      outer.formality >= 4);
 
   const outerStreet = outer && hasStyleValue(outer, "street");
   const outerCasual = outer && hasStyleValue(outer, "casual");
 
   const shoesOffice =
     shoes &&
-    (
-      hasStyleValue(shoes, "office") ||
-      ["loafers", "pumps", "heels"].includes(normalizeText(shoes.subcategory)) ||
-      shoes.formality >= 4
-    );
+    (hasStyleValue(shoes, "office") ||
+      hasSubValue(shoes, "pumps", "loafers", "heels") ||
+      shoes.formality >= 4);
 
   const shoesStreet = shoes && hasStyleValue(shoes, "street");
   const shoesCasual =
     shoes &&
-    (
-      hasStyleValue(shoes, "casual") ||
-      ["sneakers", "sandals"].includes(normalizeText(shoes.subcategory))
-    );
+    (hasStyleValue(shoes, "casual") ||
+      hasSubValue(shoes, "sneakers", "sandals"));
 
   const bagOffice = bag && hasStyleValue(bag, "office");
   const bagStreet = bag && hasStyleValue(bag, "street");
   const bagCasual = bag && hasStyleValue(bag, "casual");
 
-  const bottomIsSweatLike =
-    bottom &&
+  const outerIsFormal =
+    outer &&
     (
-      ["sweat", "sweatpants", "jogger", "jogger_pants", "shorts", "short_pants"].includes(
-        normalizeText(bottom.subcategory)
-      ) ||
-      nameIncludes(bottom, "スウェット", "ジョガー", "ショーパン", "shorts")
+      hasStyleValue(outer, "office") ||
+      hasSubValue(outer, "jacket", "tailored_jacket", "coat", "office_jacket") ||
+      outer.formality >= 4
     );
 
   const bottomIsFormal =
     bottom &&
     (
       hasStyleValue(bottom, "office") ||
-      hasSubValue(bottom, "slacks") ||
+      hasSubValue(bottom, "slacks", "office_pants", "office_skirt") ||
       bottom.formality >= 4
-    );
-
-  const outerIsFormal =
-    outer &&
-    (
-      hasStyleValue(outer, "office") ||
-      hasSubValue(outer, "jacket", "tailored_jacket", "coat") ||
-      outer.formality >= 4
     );
 
   const shoesAreSneakers =
@@ -1646,14 +1114,18 @@ function passesStyleConsistencyRule(items: OutfitItem[], occasion: string | null
     );
 
   if (suitLikeUpperLower && shoesAreSneakers) return false;
-  if (outerOffice && shoesCasual) { console.log("[sc] outerOffice && shoesCasual"); return false; }
-  if (bottomOffice && shoesCasual) { console.log("[sc] bottomOffice && shoesCasual"); return false; }
-  if (bagOffice && shoesStreet) { console.log("[sc] bagOffice && shoesStreet"); return false; }
-  if (bagOffice && shoesCasual && !shoesOffice) { console.log("[sc] bagOffice && shoesCasual"); return false; }
-  if (outerOffice && bottomStreet) { console.log("[sc] outerOffice && bottomStreet"); return false; }
-  if (outerOffice && bottomIsSweatLike) { console.log("[sc] outerOffice && bottomIsSweatLike"); return false; }
-  if (topFeminine && outerStreet) { console.log("[sc] topFeminine && outerStreet"); return false; }
-  if (topFeminine && bottomStreet) { console.log("[sc] topFeminine && bottomStreet"); return false; }
+
+  if (outerOffice && shoesCasual) return false;
+  if (bottomOffice && shoesCasual) return false;
+
+  if (bagOffice && shoesStreet) return false;
+  if (bagOffice && shoesCasual && !shoesOffice) return false;
+
+  if (outerOffice && bottomStreet) return false;
+  if (outerOffice && bottomIsSweatLike) return false;
+
+  if (topFeminine && outerStreet) return false;
+  if (topFeminine && bottomStreet) return false;
 
   const officeCount = [topOffice, bottomOffice, outerOffice, shoesOffice, bagOffice].filter(Boolean).length;
   const streetCount = [bottomStreet, outerStreet, shoesStreet, bagStreet].filter(Boolean).length;
@@ -1680,69 +1152,39 @@ function passesStyleConsistencyRule(items: OutfitItem[], occasion: string | null
   return true;
 }
 
+function passesStyleConsistencyRule(items: OutfitItem[], occasion: string | null) {
+  const penalty = scoreStyleHarmonyPenalty(items);
+  if (penalty >= 10) return false;
+
+  if (occasion === "formal" || occasion === "office") {
+    const hasStreet = items.some((item) => hasStyleValue(item, "street"));
+    if (hasStreet) return false;
+  }
+
+  return true;
+}
+
 function passesHardRules(
   items: OutfitItem[],
   minTemp: number,
   maxTemp: number,
   occasion: string | null
 ) {
-  if ((occasion === "office" || occasion === "formal") && isOfficeSuitLike(items)) {
+  if (
+    (occasion === "casual" || occasion === "date" || occasion === "travel") &&
+    isOfficeSuitLike(items)
+  ) {
     return false;
   }
 
   const structureScore = scoreStructure(items);
-  if (structureScore <= 0) {
-    console.log("[outfit] rejected: structure", items.map(i => i.category));
-    return false;
-  }
+  if (structureScore <= 0) return false;
 
-  if (!passesTemperatureRule(items, minTemp, maxTemp)) {
-    console.log("[outfit] rejected: temperature", items.map(i => `${i.category}:${i.seasons}`));
-    return false;
-  }
+  if (!passesTemperatureRule(items, minTemp, maxTemp)) return false;
+  if (!passesOccasionRule(items, occasion)) return false;
+  if (!passesStyleConsistencyRule(items, occasion)) return false;
 
-  // 寒い日（15℃以下）に春夏トップスはアウターかウォームレイヤーなしではNG
-  if (maxTemp <= 15) {
-    const tops = items.filter(i => i.category === "tops");
-    const hasColdInvalidTop = tops.some(top => {
-      // 季節タグで春夏のみのアイテム
-      const seasons = top.seasons ?? [];
-      const isSeasonInvalid = seasons.length > 0 &&
-        seasons.includes("summer") && !seasons.includes("autumn") && !seasons.includes("winter");
-      // 生地・素材が薄手系（季節タグ関係なく寒い日はNG）
-      const isMaterialLight = isTooLightForCold(top);
-      return isSeasonInvalid || isMaterialLight;
-    });
-    const hasWarmTopLayer = tops.some(top => isWarmSupportTop(top));
-    if (hasColdInvalidTop && !hasWarmTopLayer) return false;
-  }
-
-  if (!passesLayeringRule(items, minTemp, maxTemp)) {
-    console.log("[outfit] rejected: layering", items.map(i => ({
-      category: i.category,
-      name: i.name,
-      seasons: i.seasons,
-    })));
-    return false;
-  }
-
-  if (!passesShoeSeasonRule(items, minTemp, maxTemp)) {
-    console.log("[outfit] rejected: shoes", items.map(i => ({
-      category: i.category,
-      name: i.name,
-      subcategory: i.subcategory,
-      seasons: i.seasons,
-    })));
-    return false;
-  }
-
-  if (!passesOccasionRule(items, occasion)) {
-    console.log("[outfit] rejected: occasion", items.map(i => i.category));
-    return false;
-  }
-
-  if (!passesStyleConsistencyRule(items, occasion)) {
-    console.log("[outfit] rejected: styleConsistency", items.map(i => i.category));
+  if (needsOuterByTemperature(minTemp, maxTemp) && !hasOuter(items)) {
     return false;
   }
 
@@ -1767,28 +1209,6 @@ function buildTopCombos(tops: OutfitItem[]) {
   return combos;
 }
 
-function getPrimaryStyle(outfit: { items: OutfitItem[] }) {
-  const counts = new Map<string, number>();
-
-  for (const item of outfit.items) {
-    for (const style of item.styles ?? []) {
-      counts.set(style, (counts.get(style) ?? 0) + 1);
-    }
-  }
-
-  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  return sorted[0]?.[0] ?? null;
-}
-
-function getTopSignature(outfit: { items: OutfitItem[] }) {
-  const topIds = outfit.items
-    .filter((item) => item.category === "tops")
-    .map((item) => item.id)
-    .sort();
-
-  return topIds.join("|");
-}
-
 function getPrimaryTopId(outfit: { items: OutfitItem[] }) {
   return outfit.items.find((item) => item.category === "tops")?.id ?? null;
 }
@@ -1797,57 +1217,580 @@ function isTooSimilarOutfit(
   a: { items: OutfitItem[] },
   b: { items: OutfitItem[] }
 ) {
-  const aIds = new Set(a.items.map((item) => item.id));
-  const bIds = new Set(b.items.map((item) => item.id));
-
-  let sameCount = 0;
-  for (const id of aIds) {
-    if (bIds.has(id)) sameCount++;
-  }
-
-  const aPrimaryStyle = getPrimaryStyle(a);
-  const bPrimaryStyle = getPrimaryStyle(b);
-
-  const aOuter = a.items.find((item) => item.category === "outer")?.id ?? null;
-  const bOuter = b.items.find((item) => item.category === "outer")?.id ?? null;
-
-  const aBottom = a.items.find((item) => item.category === "bottoms")?.id ?? null;
-  const bBottom = b.items.find((item) => item.category === "bottoms")?.id ?? null;
-
-  const aShoes = a.items.find((item) => item.category === "shoes")?.id ?? null;
-  const bShoes = b.items.find((item) => item.category === "shoes")?.id ?? null;
-
   const aTopIds = a.items
     .filter((item) => item.category === "tops")
     .map((item) => item.id)
-    .sort()
-    .join("|");
+    .sort();
 
   const bTopIds = b.items
     .filter((item) => item.category === "tops")
     .map((item) => item.id)
-    .sort()
-    .join("|");
+    .sort();
 
-  const sameOuter = Boolean(aOuter && bOuter && aOuter === bOuter);
-  const sameBottom = Boolean(aBottom && bBottom && aBottom === bBottom);
-  const sameShoes = Boolean(aShoes && bShoes && aShoes === bShoes);
-  const sameTops = aTopIds !== "" && aTopIds === bTopIds;
+  const aBottomId = a.items.find((item) => item.category === "bottoms")?.id ?? null;
+  const bBottomId = b.items.find((item) => item.category === "bottoms")?.id ?? null;
 
-  if (sameCount >= 4) return true;
-  if (sameOuter && sameBottom) return true;
-  if (sameTops && sameBottom) return true;
-  if (sameTops && sameBottom && sameShoes) return true;
+  const aOnepieceId = a.items.find((item) => item.category === "onepiece")?.id ?? null;
+  const bOnepieceId = b.items.find((item) => item.category === "onepiece")?.id ?? null;
 
-  if (sameCount >= 3 && aPrimaryStyle && aPrimaryStyle === bPrimaryStyle) {
+  const aShoesId = a.items.find((item) => item.category === "shoes")?.id ?? null;
+  const bShoesId = b.items.find((item) => item.category === "shoes")?.id ?? null;
+
+  const aOuterId = a.items.find((item) => item.category === "outer")?.id ?? null;
+  const bOuterId = b.items.find((item) => item.category === "outer")?.id ?? null;
+
+  const sameTopSet =
+    aTopIds.length === bTopIds.length &&
+    aTopIds.every((id, idx) => id === bTopIds[idx]);
+
+  const sameBottom = aBottomId !== null && aBottomId === bBottomId;
+  const sameOnepiece = aOnepieceId !== null && aOnepieceId === bOnepieceId;
+  const sameShoes = aShoesId !== null && aShoesId === bShoesId;
+  const sameOuter = aOuterId !== null && aOuterId === bOuterId;
+
+  if (sameOnepiece) return true;
+  if (sameTopSet && sameBottom) return true;
+  if (sameTopSet && sameBottom && sameShoes) return true;
+  if (sameTopSet && sameBottom && sameOuter) return true;
+
+  return false;
+}
+
+function uniqueByKey<T>(items: T[], getKey: (item: T) => string) {
+  const map = new Map<string, T>();
+
+  for (const item of items) {
+    const key = getKey(item);
+    if (!map.has(key)) {
+      map.set(key, item);
+    }
+  }
+
+  return [...map.values()];
+}
+
+function buildOutfit(
+  items: OutfitItem[],
+  styleContext: UserStyleContext,
+  occasion: string | null,
+  prioritizeVersatility: boolean,
+  minTemp: number,
+  maxTemp: number,
+  fixedItemName?: string | null
+): OutfitResult {
+  const style = scoreStyleMatch(items, styleContext.requestedStyle);
+  const color = scoreColorBalance(items);
+  const preference = scorePreference(items, styleContext.requestedStyle);
+  const rewear = scoreRewear(items);
+  const setupBonus = scoreSetupBonus(items);
+  const suitBonus = scoreSuitBonus(items, occasion);
+  const moodCohesionBonus = scoreMoodCohesionBonus(items);
+  const versatilityBonus = prioritizeVersatility ? scoreVersatility(items) : 0;
+  const favoriteStyleBonus = scoreFavoriteStyleBonus(items, styleContext.favoriteStyle);
+  const targetStyleBonus = scoreTargetStyleBonus(items, styleContext.targetStyle);
+  const inspirationBonus = scoreInspirationBonus(items, styleContext.targetStyle);
+  const harmonyPenalty = scoreHarmonyPenalty(items);
+  const styleHarmonyPenalty = scoreStyleHarmonyPenalty(items);
+  const layeringBonus = scoreLayeringBonus(items, minTemp, maxTemp);
+  const occasionScore = scoreOccasion(items, occasion);
+
+  const score =
+    occasionScore +
+    style +
+    color +
+    preference +
+    rewear +
+    setupBonus +
+    suitBonus +
+    moodCohesionBonus +
+    versatilityBonus +
+    favoriteStyleBonus +
+    targetStyleBonus +
+    inspirationBonus +
+    layeringBonus -
+    harmonyPenalty -
+    styleHarmonyPenalty;
+
+  const breakdown: OutfitResult["breakdown"] = {
+    occasion: occasionScore,
+    style,
+    color,
+    preference,
+    rewear,
+    setupBonus,
+    suitBonus,
+    moodCohesionBonus,
+    versatilityBonus,
+    favoriteStyleBonus,
+    targetStyleBonus,
+    inspirationBonus,
+    harmonyPenalty,
+    styleHarmonyPenalty,
+    layeringBonus,
+  };
+
+  return {
+    rank: 0,
+    score,
+    reasons: buildReasons(score, breakdown, fixedItemName, items),
+    items,
+    slotMap: buildSlotMap(items),
+    breakdown,
+  };
+}
+
+function parseExcludedOutfitKeys(value: unknown): string[][] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter((entry): entry is unknown[] => Array.isArray(entry))
+    .map((entry) => entry.filter((id): id is string => typeof id === "string").sort())
+    .filter((entry) => entry.length > 0);
+}
+
+function getOutfitKey(items: OutfitItem[]) {
+  return items.map((item) => item.id).sort().join("-");
+}
+
+async function getUserStyleContext(userId: string, requestedStyle: string | null) {
+  let profile: { favoriteStyle: string | null; targetStyle: string | null } | null = null;
+
+  try {
+    const prismaAny = prisma as any;
+
+    if (prismaAny.userProfile?.findUnique) {
+      profile = await prismaAny.userProfile.findUnique({
+        where: { userId },
+        select: {
+          favoriteStyle: true,
+          targetStyle: true,
+        },
+      });
+    } else if (prismaAny.profile?.findUnique) {
+      profile = await prismaAny.profile.findUnique({
+        where: { userId },
+        select: {
+          favoriteStyle: true,
+          targetStyle: true,
+        },
+      });
+    }
+  } catch (error) {
+    console.error("getUserStyleContext fallback:", error);
+  }
+
+  return {
+    requestedStyle,
+    favoriteStyle: profile?.favoriteStyle ?? null,
+    targetStyle: profile?.targetStyle ?? null,
+  } satisfies UserStyleContext;
+}
+
+function shouldBlockByExcludedBase(
+  items: OutfitItem[],
+  excludedOutfitKeys: string[][]
+) {
+  if (excludedOutfitKeys.length === 0) return false;
+
+  const usedIds = new Set(excludedOutfitKeys.flat());
+
+  const tops = items.filter((item) => item.category === "tops");
+  const bottom = items.find((item) => item.category === "bottoms");
+  const onepiece = items.find((item) => item.category === "onepiece");
+
+  if (onepiece && usedIds.has(onepiece.id)) {
     return true;
   }
 
-  if (sameCount >= 2 && sameTops && sameBottom) {
-    return true;
+  if (tops.length > 0 && bottom) {
+    const sameTopUsed = tops.every((item) => usedIds.has(item.id));
+    const sameBottomUsed = usedIds.has(bottom.id);
+    if (sameTopUsed && sameBottomUsed) {
+      return true;
+    }
   }
 
   return false;
+}
+
+function hasDuplicateItems(items: OutfitItem[]) {
+  const ids = items.map((item) => item.id);
+  return new Set(ids).size !== ids.length;
+}
+
+function pushCandidateOutfit(
+  target: OutfitResult[],
+  items: OutfitItem[],
+  styleContext: UserStyleContext,
+  occasion: string | null,
+  prioritizeVersatility: boolean,
+  minTemp: number,
+  maxTemp: number,
+  excludedOutfitKeys: string[][],
+  fixedItemName?: string | null
+) {
+  // 🚨 同一アイテムが複数スロットに入るのを防ぐ
+  if (hasDuplicateItems(items)) {
+    return;
+  }
+
+  if (shouldBlockByExcludedBase(items, excludedOutfitKeys)) {
+    return;
+  }
+
+  // 🚨 スロット構造チェック
+const hasTop = items.some((i) => i.category === "tops");
+const hasBottom = items.some((i) => i.category === "bottoms");
+const hasOnepiece = items.some((i) => i.category === "onepiece");
+
+if (!( (hasTop && hasBottom) || hasOnepiece )) {
+  return;
+}
+
+  target.push(
+    buildOutfit(
+      items,
+      styleContext,
+      occasion,
+      prioritizeVersatility,
+      minTemp,
+      maxTemp,
+      fixedItemName
+    )
+  );
+}
+
+function generateTwoPieceCandidates(
+  rawOutfitsBase: OutfitResult[],
+  pools: CandidatePools,
+  options: {
+    fixedItem?: OutfitItem | null;
+    styleContext: UserStyleContext;
+    occasion: string | null;
+    prioritizeVersatility: boolean;
+    minTemp: number;
+    maxTemp: number;
+    excludedOutfitKeys: string[][];
+  }
+) {
+  const { tops, bottoms, outers, shoes, bags } = pools;
+  const {
+    fixedItem,
+    styleContext,
+    occasion,
+    prioritizeVersatility,
+    minTemp,
+    maxTemp,
+    excludedOutfitKeys,
+  } = options;
+
+  const topCombos = buildTopCombos(tops);
+  const needOuter = needsOuterByTemperature(minTemp, maxTemp);
+
+  for (const topCombo of topCombos) {
+    for (const bottom of bottoms) {
+      for (const shoe of shoes) {
+        const baseItems = [...topCombo, bottom];
+
+        if (needOuter) {
+          for (const outer of outers) {
+            const withOuter = [...baseItems, outer, shoe];
+            pushCandidateOutfit(
+              rawOutfitsBase,
+              withOuter,
+              styleContext,
+              occasion,
+              prioritizeVersatility,
+              minTemp,
+              maxTemp,
+              excludedOutfitKeys,
+              fixedItem?.name ?? null
+            );
+
+            for (const bag of bags) {
+              pushCandidateOutfit(
+                rawOutfitsBase,
+                [...withOuter, bag],
+                styleContext,
+                occasion,
+                prioritizeVersatility,
+                minTemp,
+                maxTemp,
+                excludedOutfitKeys,
+                fixedItem?.name ?? null
+              );
+            }
+          }
+        } else {
+          const noOuter = [...baseItems, shoe];
+          pushCandidateOutfit(
+            rawOutfitsBase,
+            noOuter,
+            styleContext,
+            occasion,
+            prioritizeVersatility,
+            minTemp,
+            maxTemp,
+            excludedOutfitKeys,
+            fixedItem?.name ?? null
+          );
+
+          for (const bag of bags) {
+            pushCandidateOutfit(
+              rawOutfitsBase,
+              [...noOuter, bag],
+              styleContext,
+              occasion,
+              prioritizeVersatility,
+              minTemp,
+              maxTemp,
+              excludedOutfitKeys,
+              fixedItem?.name ?? null
+            );
+          }
+
+          for (const outer of outers) {
+            const withOuter = [...baseItems, outer, shoe];
+            pushCandidateOutfit(
+              rawOutfitsBase,
+              withOuter,
+              styleContext,
+              occasion,
+              prioritizeVersatility,
+              minTemp,
+              maxTemp,
+              excludedOutfitKeys,
+              fixedItem?.name ?? null
+            );
+
+            for (const bag of bags) {
+              pushCandidateOutfit(
+                rawOutfitsBase,
+                [...withOuter, bag],
+                styleContext,
+                occasion,
+                prioritizeVersatility,
+                minTemp,
+                maxTemp,
+                excludedOutfitKeys,
+                fixedItem?.name ?? null
+              );
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+function generateOnepieceCandidates(
+  rawOutfitsBase: OutfitResult[],
+  pools: CandidatePools,
+  options: {
+    fixedItem?: OutfitItem | null;
+    styleContext: UserStyleContext;
+    occasion: string | null;
+    prioritizeVersatility: boolean;
+    minTemp: number;
+    maxTemp: number;
+    excludedOutfitKeys: string[][];
+  }
+) {
+  const { onepieces, outers, shoes, bags } = pools;
+  const {
+    fixedItem,
+    styleContext,
+    occasion,
+    prioritizeVersatility,
+    minTemp,
+    maxTemp,
+    excludedOutfitKeys,
+  } = options;
+
+  const needOuter = needsOuterByTemperature(minTemp, maxTemp);
+
+  for (const onepiece of onepieces) {
+    for (const shoe of shoes) {
+      if (needOuter) {
+        for (const outer of outers) {
+          const withOuter = [onepiece, outer, shoe];
+          pushCandidateOutfit(
+            rawOutfitsBase,
+            withOuter,
+            styleContext,
+            occasion,
+            prioritizeVersatility,
+            minTemp,
+            maxTemp,
+            excludedOutfitKeys,
+            fixedItem?.name ?? null
+          );
+
+          for (const bag of bags) {
+            pushCandidateOutfit(
+              rawOutfitsBase,
+              [...withOuter, bag],
+              styleContext,
+              occasion,
+              prioritizeVersatility,
+              minTemp,
+              maxTemp,
+              excludedOutfitKeys,
+              fixedItem?.name ?? null
+            );
+          }
+        }
+      } else {
+        const noOuter = [onepiece, shoe];
+        pushCandidateOutfit(
+          rawOutfitsBase,
+          noOuter,
+          styleContext,
+          occasion,
+          prioritizeVersatility,
+          minTemp,
+          maxTemp,
+          excludedOutfitKeys,
+          fixedItem?.name ?? null
+        );
+
+        for (const bag of bags) {
+          pushCandidateOutfit(
+            rawOutfitsBase,
+            [...noOuter, bag],
+            styleContext,
+            occasion,
+            prioritizeVersatility,
+            minTemp,
+            maxTemp,
+            excludedOutfitKeys,
+            fixedItem?.name ?? null
+          );
+        }
+
+        for (const outer of outers) {
+          const withOuter = [onepiece, outer, shoe];
+          pushCandidateOutfit(
+            rawOutfitsBase,
+            withOuter,
+            styleContext,
+            occasion,
+            prioritizeVersatility,
+            minTemp,
+            maxTemp,
+            excludedOutfitKeys,
+            fixedItem?.name ?? null
+          );
+
+          for (const bag of bags) {
+            pushCandidateOutfit(
+              rawOutfitsBase,
+              [...withOuter, bag],
+              styleContext,
+              occasion,
+              prioritizeVersatility,
+              minTemp,
+              maxTemp,
+              excludedOutfitKeys,
+              fixedItem?.name ?? null
+            );
+          }
+        }
+      }
+    }
+  }
+}
+
+function buildPoolsForFixedItem(
+  candidateItems: OutfitItem[],
+  fixedItem: OutfitItem | null
+): CandidatePools {
+  const allTops = candidateItems.filter((item) => item.category === "tops");
+  const allBottoms = candidateItems.filter((item) => item.category === "bottoms");
+  const allOnepieces = candidateItems.filter((item) => item.category === "onepiece");
+  const allOuters = candidateItems.filter((item) => item.category === "outer");
+  const allShoes = candidateItems.filter((item) => item.category === "shoes");
+  const allBags = candidateItems.filter(
+    (item) => item.category === "bag" || item.category === "bags"
+  );
+
+  if (!fixedItem) {
+    return {
+      tops: allTops,
+      bottoms: allBottoms,
+      onepieces: allOnepieces,
+      outers: allOuters,
+      shoes: allShoes,
+      bags: allBags,
+    };
+  }
+
+  switch (fixedItem.category) {
+    case "tops":
+      return {
+        tops: [fixedItem],
+        bottoms: allBottoms,
+        onepieces: [],
+        outers: allOuters,
+        shoes: allShoes,
+        bags: allBags,
+      };
+    case "bottoms":
+      return {
+        tops: allTops,
+        bottoms: [fixedItem],
+        onepieces: [],
+        outers: allOuters,
+        shoes: allShoes,
+        bags: allBags,
+      };
+    case "onepiece":
+      return {
+        tops: [],
+        bottoms: [],
+        onepieces: [fixedItem],
+        outers: allOuters,
+        shoes: allShoes,
+        bags: allBags,
+      };
+    case "outer":
+      return {
+        tops: allTops,
+        bottoms: allBottoms,
+        onepieces: allOnepieces,
+        outers: [fixedItem],
+        shoes: allShoes,
+        bags: allBags,
+      };
+    case "shoes":
+      return {
+        tops: allTops,
+        bottoms: allBottoms,
+        onepieces: allOnepieces,
+        outers: allOuters,
+        shoes: [fixedItem],
+        bags: allBags,
+      };
+    case "bag":
+    case "bags":
+      return {
+        tops: allTops,
+        bottoms: allBottoms,
+        onepieces: allOnepieces,
+        outers: allOuters,
+        shoes: allShoes,
+        bags: [fixedItem],
+      };
+    default:
+      return {
+        tops: allTops,
+        bottoms: allBottoms,
+        onepieces: allOnepieces,
+        outers: allOuters,
+        shoes: allShoes,
+        bags: allBags,
+      };
+  }
 }
 
 export async function POST(req: Request) {
@@ -1860,256 +1803,129 @@ export async function POST(req: Request) {
 
     const body = await req.json();
 
-    const style = body.style ?? null;
+    const style = typeof body.style === "string" ? body.style : null;
     const minTemp = Number(body.minTemp ?? 15);
     const maxTemp = Number(body.maxTemp ?? 22);
-    const limit = Number(body.limit ?? 3);
-    const fixedItemId = body.fixedItemId ?? null;
-    const occasion = body.occasion ?? null;
+    const limit = Math.max(1, Math.min(6, Number(body.limit ?? 3)));
+    const fixedItemId = typeof body.fixedItemId === "string" ? body.fixedItemId : null;
+    const occasion = typeof body.occasion === "string" ? body.occasion : null;
     const prioritizeVersatility = Boolean(body.prioritizeVersatility ?? false);
+    const excludedOutfitKeys = parseExcludedOutfitKeys(body.excludedOutfitKeys);
 
-    const items = await prisma.item.findMany({
+    const dbItems = await prisma.item.findMany({
       where: { userId: session.user.id },
       orderBy: { createdAt: "desc" },
     });
 
-    if (!items.length) {
-      return NextResponse.json(
-        { error: "アイテムが登録されていません" },
-        { status: 400 }
-      );
+    const normalizedItems = dbItems.map(normalizeItem);
+
+    if (normalizedItems.length === 0) {
+      return NextResponse.json({
+        success: true,
+        count: 0,
+        outfits: [],
+      });
     }
-
-    const profile = await prisma.profile.findUnique({
-      where: { userId: session.user.id },
-    });
-
-    const activeStyleGoal = await prisma.styleGoal.findFirst({
-      where: {
-        userId: session.user.id,
-        isActive: true,
-      },
-      orderBy: { updatedAt: "desc" },
-    });
-
-    const styleContext: UserStyleContext = {
-      requestedStyle: style ?? null,
-      favoriteStyle: profile?.favoriteStyle ?? null,
-      targetStyle: activeStyleGoal?.targetStyle ?? null,
-    };
-
-    const normalizedItems = items.map(normalizeItem);
-    const candidateItems = filterItemsByOccasion(normalizedItems, occasion);
-
-    // トップス以外は最初から季節フィルタリング
-    const tops = candidateItems.filter((item) => item.category === "tops");
-    const bottoms = candidateItems.filter((item) => 
-      item.category === "bottoms" && hasSeasonMatch(item, minTemp, maxTemp)
-    );
-    const onepieces = candidateItems.filter((item) => 
-      item.category === "onepiece" && hasSeasonMatch(item, minTemp, maxTemp)
-    );
-    const outers = candidateItems.filter((item) => 
-      item.category === "outer" && hasSeasonMatch(item, minTemp, maxTemp)
-    );
-    const shoes = candidateItems.filter((item) => item.category === "shoes");
-    const bags = candidateItems.filter(
-      (item) => item.category === "bag" || item.category === "bags"
-    );
-
-    const topCombos = buildTopCombos(tops);
 
     const fixedItem = fixedItemId
-      ? candidateItems.find((item) => item.id === fixedItemId) ?? null
+      ? normalizedItems.find((item) => item.id === fixedItemId) ?? null
       : null;
 
-    let rawOutfits: OutfitResult[] = [];
+    const styleContext = await getUserStyleContext(session.user.id, style);
 
-    if (fixedItem) {
-      if (fixedItem.category === "tops") {
-        for (const bottom of bottoms) {
-          for (const shoe of shoes) {
-            if (needsOuterByTemperature(minTemp, maxTemp)) {
-              for (const outer of outers) {
-                rawOutfits.push(buildOutfit([fixedItem, bottom, outer, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
-                for (const bag of bags) {
-                  rawOutfits.push(buildOutfit([fixedItem, bottom, outer, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
-                }
-              }
-            } else {
-              rawOutfits.push(buildOutfit([fixedItem, bottom, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
-              for (const bag of bags) {
-                rawOutfits.push(buildOutfit([fixedItem, bottom, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
-              }
-              for (const outer of outers) {
-                rawOutfits.push(buildOutfit([fixedItem, bottom, outer, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
-                for (const bag of bags) {
-                  rawOutfits.push(buildOutfit([fixedItem, bottom, outer, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
-                }
-              }
-            }
-          }
-        }
-      }
+    const candidateItems =
+      fixedItem != null
+        ? normalizedItems.filter(
+            (item) =>
+              item.id === fixedItem.id ||
+              item.category !== fixedItem.category ||
+              item.category === "bag" ||
+              item.category === "bags"
+          )
+        : normalizedItems;
 
-      if (fixedItem.category === "bottoms") {
-        for (const topCombo of topCombos) {
-          for (const shoe of shoes) {
-            if (needsOuterByTemperature(minTemp, maxTemp)) {
-              for (const outer of outers) {
-                rawOutfits.push(buildOutfit([...topCombo, fixedItem, outer, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name ?? undefined));
-                for (const bag of bags) {
-                  rawOutfits.push(buildOutfit([...topCombo, fixedItem, outer, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name ?? undefined));
-                }
-              }
-            } else {
-              rawOutfits.push(buildOutfit([...topCombo, fixedItem, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name ?? undefined));
-              for (const bag of bags) {
-                rawOutfits.push(buildOutfit([...topCombo, fixedItem, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name ?? undefined));
-              }
-              for (const outer of outers) {
-                rawOutfits.push(buildOutfit([...topCombo, fixedItem, outer, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name ?? undefined));
-                for (const bag of bags) {
-                  rawOutfits.push(buildOutfit([...topCombo, fixedItem, outer, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name ?? undefined));
-                }
-              }
-            }
-          }
-        }
-      }
+    const pools = buildPoolsForFixedItem(candidateItems, fixedItem);
+    const rawOutfitsBase: OutfitResult[] = [];
 
-      if (fixedItem.category === "onepiece") {
-        for (const shoe of shoes) {
-          if (needsOuterByTemperature(minTemp, maxTemp)) {
-            for (const outer of outers) {
-              rawOutfits.push(buildOutfit([fixedItem, outer, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
-              for (const bag of bags) {
-                rawOutfits.push(buildOutfit([fixedItem, outer, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
-              }
-            }
-          } else {
-            rawOutfits.push(buildOutfit([fixedItem, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
-            for (const bag of bags) {
-              rawOutfits.push(buildOutfit([fixedItem, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
-            }
-            for (const outer of outers) {
-              rawOutfits.push(buildOutfit([fixedItem, outer, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
-              for (const bag of bags) {
-                rawOutfits.push(buildOutfit([fixedItem, outer, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
-              }
-            }
-          }
-        }
-      }
+    generateTwoPieceCandidates(rawOutfitsBase, pools, {
+      fixedItem,
+      styleContext,
+      occasion,
+      prioritizeVersatility,
+      minTemp,
+      maxTemp,
+      excludedOutfitKeys,
+    });
 
-      if (fixedItem.category === "shoes") {
-        for (const topCombo of topCombos) {
-          for (const bottom of bottoms) {
-            rawOutfits.push(buildOutfit([...topCombo, bottom, fixedItem], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
-            for (const bag of bags) {
-              rawOutfits.push(buildOutfit([...topCombo, bottom, fixedItem, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
-            }
-          }
-        }
-        for (const onepiece of onepieces) {
-          rawOutfits.push(buildOutfit([onepiece, fixedItem], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
-          for (const bag of bags) {
-            rawOutfits.push(buildOutfit([onepiece, fixedItem, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
-          }
-        }
-      }
+    generateOnepieceCandidates(rawOutfitsBase, pools, {
+      fixedItem,
+      styleContext,
+      occasion,
+      prioritizeVersatility,
+      minTemp,
+      maxTemp,
+      excludedOutfitKeys,
+    });
 
-      if (fixedItem.category === "bag") {
-        for (const topCombo of topCombos) {
-          for (const bottom of bottoms) {
-            for (const shoe of shoes) {
-              rawOutfits.push(buildOutfit([...topCombo, bottom, shoe, fixedItem], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
-            }
-          }
-        }
-        for (const onepiece of onepieces) {
-          for (const shoe of shoes) {
-            rawOutfits.push(buildOutfit([onepiece, shoe, fixedItem], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
-          }
-        }
-      }
+    console.log("=== outfit debug start ===");
+    console.log("body", {
+      style,
+      occasion,
+      fixedItemId,
+      minTemp,
+      maxTemp,
+      prioritizeVersatility,
+      excludedOutfitKeysCount: excludedOutfitKeys.length,
+    });
 
-      if (fixedItem.category === "outer") {
-        for (const topCombo of topCombos) {
-          for (const bottom of bottoms) {
-            for (const shoe of shoes) {
-              rawOutfits.push(buildOutfit([...topCombo, bottom, fixedItem, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
-            }
-          }
-        }
-        for (const onepiece of onepieces) {
-          for (const shoe of shoes) {
-            rawOutfits.push(buildOutfit([onepiece, fixedItem, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp, fixedItem.name));
-          }
-        }
-      }
-    } else {
-      for (const topCombo of topCombos) {
-        for (const bottom of bottoms) {
-          for (const shoe of shoes) {
-            if (needsOuterByTemperature(minTemp, maxTemp)) {
-              for (const outer of outers) {
-                rawOutfits.push(buildOutfit([...topCombo, bottom, outer, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
-                for (const bag of bags) {
-                  rawOutfits.push(buildOutfit([...topCombo, bottom, outer, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
-                }
-              }
-            } else {
-              rawOutfits.push(buildOutfit([...topCombo, bottom, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
-              for (const bag of bags) {
-                rawOutfits.push(buildOutfit([...topCombo, bottom, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
-              }
-              for (const outer of outers) {
-                rawOutfits.push(buildOutfit([...topCombo, bottom, outer, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
-                for (const bag of bags) {
-                  rawOutfits.push(buildOutfit([...topCombo, bottom, outer, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
-                }
-              }
-            }
-          }
-        }
-      }
+    console.log("candidate counts", {
+      allItems: normalizedItems.length,
+      candidateItems: candidateItems.length,
+      tops: pools.tops.length,
+      bottoms: pools.bottoms.length,
+      onepieces: pools.onepieces.length,
+      outers: pools.outers.length,
+      shoes: pools.shoes.length,
+      bags: pools.bags.length,
+      rawOutfitsBeforeRules: rawOutfitsBase.length,
+    });
 
-      for (const onepiece of onepieces) {
-        for (const shoe of shoes) {
-          if (needsOuterByTemperature(minTemp, maxTemp)) {
-            for (const outer of outers) {
-              rawOutfits.push(buildOutfit([onepiece, outer, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
-              for (const bag of bags) {
-                rawOutfits.push(buildOutfit([onepiece, outer, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
-              }
-            }
-          } else {
-            rawOutfits.push(buildOutfit([onepiece, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
-            for (const bag of bags) {
-              rawOutfits.push(buildOutfit([onepiece, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
-            }
-            for (const outer of outers) {
-              rawOutfits.push(buildOutfit([onepiece, outer, shoe], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
-              for (const bag of bags) {
-                rawOutfits.push(buildOutfit([onepiece, outer, shoe, bag], styleContext, occasion, prioritizeVersatility, minTemp, maxTemp));
-              }
-            }
-          }
-        }
-      }
-    }
-
-    rawOutfits = rawOutfits.filter((outfit) =>
+    const rawOutfits = rawOutfitsBase.filter((outfit) =>
       passesHardRules(outfit.items, minTemp, maxTemp, occasion)
     );
 
-    const uniqueOutfits = uniqueByKey(
-      rawOutfits,
-      (outfit) => outfit.items.map((item) => item.id).sort().join("-")
-    );
+    console.log("rawOutfits after hard rules", rawOutfits.length);
 
-    const scoredOutfits = [...uniqueOutfits].sort((a, b) => b.score - a.score);
+    const uniqueAll = uniqueByKey(rawOutfits, (outfit) => getOutfitKey(outfit.items));
+    const scoredAll = [...uniqueAll].sort((a, b) => b.score - a.score);
+
+    let scoredOutfits = scoredAll;
+
+    if (excludedOutfitKeys.length > 0) {
+      const recentExcluded = excludedOutfitKeys.slice(-limit);
+      const filtered = scoredAll.filter((outfit) => {
+        const key = outfit.items.map((item) => item.id).sort();
+        return !recentExcluded.some(
+          (excluded) =>
+            excluded.length === key.length &&
+            excluded.every((id, idx) => id === key[idx])
+        );
+      });
+
+      console.log("after excluded filter", {
+        before: scoredAll.length,
+        after: filtered.length,
+        recentExcludedCount: recentExcluded.length,
+      });
+
+      if (filtered.length > 0) {
+        scoredOutfits = filtered;
+      }
+    }
+
+    if (scoredOutfits.length === 0) {
+      scoredOutfits = scoredAll;
+    }
 
     const selected: typeof scoredOutfits = [];
 
@@ -2124,7 +1940,9 @@ export async function POST(req: Request) {
       const samePrimaryTopCount = selected.filter(
         (picked) => getPrimaryTopId(picked) === candidatePrimaryTopId
       ).length;
-      const shouldBlockByTopVariety = candidatePrimaryTopId !== null && samePrimaryTopCount >= 1;
+
+      const shouldBlockByTopVariety =
+        candidatePrimaryTopId !== null && samePrimaryTopCount >= 1;
 
       if (!tooSimilar && !shouldBlockByTopVariety) {
         selected.push(outfit);
@@ -2135,9 +1953,9 @@ export async function POST(req: Request) {
 
     if (selected.length < limit) {
       for (const outfit of scoredOutfits) {
-        const alreadyIncluded = selected.some((picked) =>
-          picked.items.map((item) => item.id).sort().join("-") ===
-          outfit.items.map((item) => item.id).sort().join("-")
+        const outfitKey = getOutfitKey(outfit.items);
+        const alreadyIncluded = selected.some(
+          (picked) => getOutfitKey(picked.items) === outfitKey
         );
 
         const tooSimilar = selected.some((picked) => isTooSimilarOutfit(picked, outfit));
@@ -2145,7 +1963,9 @@ export async function POST(req: Request) {
         const samePrimaryTopCount = selected.filter(
           (picked) => getPrimaryTopId(picked) === candidatePrimaryTopId
         ).length;
-        const shouldBlockByTopVariety = candidatePrimaryTopId !== null && samePrimaryTopCount >= 2;
+
+        const shouldBlockByTopVariety =
+          candidatePrimaryTopId !== null && samePrimaryTopCount >= 2;
 
         if (!alreadyIncluded && !tooSimilar && !shouldBlockByTopVariety) {
           selected.push(outfit);
@@ -2154,6 +1974,23 @@ export async function POST(req: Request) {
         if (selected.length >= limit) break;
       }
     }
+
+    if (selected.length < limit) {
+      for (const outfit of scoredOutfits) {
+        const outfitKey = getOutfitKey(outfit.items);
+        const alreadyIncluded = selected.some(
+          (picked) => getOutfitKey(picked.items) === outfitKey
+        );
+
+        if (!alreadyIncluded) {
+          selected.push(outfit);
+        }
+
+        if (selected.length >= limit) break;
+      }
+    }
+
+    console.log("selected outfits", selected.length);
 
     const sorted = selected.map((outfit, index) => ({
       ...outfit,

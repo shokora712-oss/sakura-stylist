@@ -37,6 +37,12 @@ type AnalyzeSingleResponse = {
   formality: number | null;
   brand: string | null;
   memo: string | null;
+  bbox: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null;
 };
 
 type AnalyzeCandidate = {
@@ -490,7 +496,13 @@ async function uploadCroppedImage(croppedDataUrl: string): Promise<string | null
     const json = await uploadRes.json().catch(() => null);
     if (!uploadRes.ok) return null;
 
-    return json?.imageUrl ?? null;
+    const uploadedUrl =
+      json?.url ??
+      json?.imageUrl ??
+      json?.secure_url ??
+      null;
+
+    return uploadedUrl ? String(uploadedUrl) : null;
   } catch {
     return null;
   }
@@ -508,6 +520,12 @@ export default function ClosetNewPage() {
   const [outfitUploadedImageUrl, setOutfitUploadedImageUrl] = useState<string | null>(null);
 
   const [form, setForm] = useState<FormState>(emptyForm());
+  const [singleDetectedBbox, setSingleDetectedBbox] = useState<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>(null);
 
   const [isAnalyzingSingle, setIsAnalyzingSingle] = useState(false);
   const [isAnalyzingOutfit, setIsAnalyzingOutfit] = useState(false);
@@ -589,6 +607,8 @@ export default function ClosetNewPage() {
       brand: result.brand ?? "",
       memo: result.memo ?? "",
     }));
+
+    setSingleDetectedBbox(result.bbox ?? null);
   }
 
   async function ensureUploadedImageUrl(file: File | null, currentUrl: string | null) {
@@ -626,6 +646,7 @@ export default function ClosetNewPage() {
   async function handleSingleFileChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
     setSingleUploadedImageUrl(null);
+    setSingleDetectedBbox(null);
     resetMessages();
 
     if (!file) {
@@ -1035,9 +1056,27 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
 
       setIsSavingSingle(true);
 
-      const uploadedUrl = await ensureUploadedImageUrl(singleFile, singleUploadedImageUrl);
-      if (uploadedUrl && uploadedUrl !== singleUploadedImageUrl) {
-        setSingleUploadedImageUrl(uploadedUrl);
+      let finalImageUrl: string | null = null;
+
+      if (singleFile && singleDetectedBbox) {
+        const imageDataUrl = await fileToDataUrl(singleFile);
+        const croppedDataUrl = await cropCandidateImage(
+          imageDataUrl,
+          singleDetectedBbox,
+          form.category || null
+        );
+
+        if (croppedDataUrl) {
+          finalImageUrl = await uploadCroppedImage(croppedDataUrl);
+        }
+      }
+
+      if (!finalImageUrl) {
+        finalImageUrl = await ensureUploadedImageUrl(singleFile, singleUploadedImageUrl);
+      }
+
+      if (finalImageUrl && finalImageUrl !== singleUploadedImageUrl) {
+        setSingleUploadedImageUrl(finalImageUrl);
       }
 
       const res = await fetch("/api/items", {
@@ -1045,7 +1084,7 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(formToPayload(form, uploadedUrl)),
+        body: JSON.stringify(formToPayload(form, finalImageUrl)),
       });
 
       const json = await res.json();
@@ -1059,6 +1098,7 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
       setSingleFile(null);
       setSinglePreviewUrl(null);
       setSingleUploadedImageUrl(null);
+      setSingleDetectedBbox(null);
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "保存に失敗しました");
     } finally {
@@ -1084,6 +1124,14 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
       const uploadedUrl = await ensureUploadedImageUrl(outfitFile, outfitUploadedImageUrl);
       if (uploadedUrl && uploadedUrl !== outfitUploadedImageUrl) {
         setOutfitUploadedImageUrl(uploadedUrl);
+      }
+
+      const missingCroppedCandidates = targetCandidates.filter(
+        (candidate) => candidate.bbox && !candidate.imageUrl
+      );
+
+      if (missingCroppedCandidates.length > 0) {
+        throw new Error("一部の候補で切り抜き画像の保存に失敗しました。もう一度解析してください");
       }
 
       const payload = {
@@ -1633,6 +1681,16 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
                           </div>
                         )}
 
+                        {candidate.imageUrl && (
+                          <div className="mb-4 overflow-hidden rounded-2xl ring-1 ring-[#FCE4EC]">
+                            <img
+                              src={candidate.imageUrl}
+                              alt={candidate.form.name || "candidate preview"}
+                              className="h-40 w-full object-cover"
+                            />
+                          </div>
+                        )}
+
                         <div className="grid gap-4 ">
                           <div>
                             <label className="mb-1 block text-sm font-medium">名前</label>
@@ -1772,7 +1830,7 @@ const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl);
                             </div>
                           </div>
 
-<div className="md:col-span-2">
+                          <div className="md:col-span-2">
                             <label className="mb-2 block text-sm font-medium">スタイルタグ</label>
                             <div className="flex flex-wrap gap-2">
                               {STYLE_OPTIONS.map((style) => {
