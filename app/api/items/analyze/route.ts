@@ -67,6 +67,7 @@ type SingleAnalyzeResponse = {
   formality: number | null;
   brand: string | null;
   memo: string | null;
+  bbox: CandidateBBox | null;
 };
 
 type CandidateVisibility = {
@@ -124,45 +125,39 @@ type OutfitAnalyzeResponse = {
 };
 
 const SINGLE_ITEM_PROMPT = `
-あなたはファッション登録補助AIです。
-目的は、ユーザーがアップロードした「1着の服またはバッグ/靴」の画像を見て、
-Closet AI 用の登録候補を JSON で返すことです。
+You are a JSON-only response bot.
 
-絶対ルール:
-- 必ず JSON のみを返してください。前置きや説明文は禁止です。
-- 画像には原則1アイテムだけ写っている前提です。
-- 推測しすぎないでください。自信がない項目は null または空配列にしてください。
-- 許可された候補以外の値は返さないでください。
+You must ALWAYS return valid JSON.
 
-- category は必ず次のどれか、または null:
-  ${JSON.stringify(ALLOWED_CATEGORY_VALUES)}
+Task:
+Detect the main clothing item in the image and return its attributes and bounding box.
 
-- color は次の候補から最大2つまで:
-  ${JSON.stringify(ALLOWED_COLOR_VALUES)}
+STRICT RULES:
+- Always include bbox (never omit unless impossible)
+- bbox must tightly fit the clothing item itself
+- Do NOT include face, arms, or background
+- bbox must be normalized (0〜1)
+- If uncertain, still return best guess bbox
 
-- season は次の候補のみ:
-  ${JSON.stringify(ALLOWED_SEASON_VALUES)}
+- category:
+${JSON.stringify(ALLOWED_CATEGORY_VALUES)}
 
-- styleTags はアイテムの基本的な雰囲気を表すBase Styleタグ。次の候補から1〜2個:
-  ${JSON.stringify(ALLOWED_BASE_STYLE_VALUES)}
+- color (max 2):
+${JSON.stringify(ALLOWED_COLOR_VALUES)}
 
-- inspirationTags は文化的・トレンド的な方向性を表すInspirationタグ。次の候補から0〜1個（なければ空配列）:
-  ${JSON.stringify(ALLOWED_INSPIRATION_VALUES)}
+- season:
+${JSON.stringify(ALLOWED_SEASON_VALUES)}
 
-subCategory の候補:
+- styleTags:
+${JSON.stringify(ALLOWED_BASE_STYLE_VALUES)}
+
+- inspirationTags:
+${JSON.stringify(ALLOWED_INSPIRATION_VALUES)}
+
+subCategory:
 ${JSON.stringify(ALLOWED_SUBCATEGORY_VALUES, null, 2)}
 
-判定方針:
-- 仕事用シャツなら office_shirt
-- スーツパンツなら office_pants
-- スーツスカートなら office_skirt
-- スーツジャケットなら office_jacket
-- formality は 1〜5 で返してよいが、分からなければ null
-- brand は画像から確信できる場合のみ。分からなければ null
-- name must be a very short Japanese noun phrase (e.g. "白いワンピース"). No punctuation. No sentences.
-- memo には「判断理由」や「不確実な点」を短く日本語で入れてください
-
-返却JSONの型:
+Return JSON:
 {
   "name": string | null,
   "category": string | null,
@@ -173,7 +168,13 @@ ${JSON.stringify(ALLOWED_SUBCATEGORY_VALUES, null, 2)}
   "inspirationTags": string[],
   "formality": number | null,
   "brand": string | null,
-  "memo": string | null
+  "memo": string | null,
+  "bbox": {
+    "x": number,
+    "y": number,
+    "w": number,
+    "h": number
+  }
 }
 `.trim();
 
@@ -430,6 +431,7 @@ function sanitizeSingleResponse(parsed: any): SingleAnalyzeResponse {
     formality: sanitizeFormality(parsed?.formality),
     brand: sanitizeNullableString(parsed?.brand),
     memo: sanitizeNullableString(parsed?.memo),
+    bbox: sanitizeBBox(parsed?.bbox),
   };
 }
 
@@ -623,7 +625,7 @@ export async function POST(req: Request) {
       const parsed = await requestJsonFromVision({
         prompt: SINGLE_ITEM_PROMPT,
         imageDataUrl,
-        userText: "この画像のアイテムを Closet AI の登録候補JSONとして返してください。",
+        userText: "画像内の主な服1つを検出し、必ずbbox付きで返してください。",
       });
       const sanitized = sanitizeSingleResponse(parsed);
       return NextResponse.json(sanitized);

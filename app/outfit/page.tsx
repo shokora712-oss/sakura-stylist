@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 import { useSession } from "next-auth/react";
 import BottomNav from "../components/BottomNav";
 import {
@@ -157,7 +158,7 @@ function getCachedWeather(outingTime: string, returnTime: string): WeatherData |
   } catch { return null; }
 }
 
-export default function OutfitPage() {
+function OutfitPage() {
   const { data: session } = useSession();
   const searchParams = useSearchParams();
   const autoTriggered = useRef(false);
@@ -744,6 +745,14 @@ function normalizeCategory(category: string) {
 
 function getOutfitKeyArray(outfit: Outfit): string[] {
   return outfit.items.map((item) => item.id).sort();
+}
+
+export default function OutfitPageWrapper() {
+  return (
+    <Suspense>
+      <OutfitPage />
+    </Suspense>
+  );
 }
 
 function getTempRange(outing: string, returning: string) {
