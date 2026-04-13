@@ -112,6 +112,12 @@ export default function UploadHubPage() {
 
   const [savingItemIndex, setSavingItemIndex] = useState<number | null>(null);
   const [savedItems, setSavedItems] = useState<Set<number>>(new Set());
+  const [croppedPreviews, setCroppedPreviews] = useState<Record<number, string>>({});
+  const [duplicateConfirm, setDuplicateConfirm] = useState<{
+    index: number;
+    candidate: ItemCandidate;
+    matches: ClosetItem[];
+  } | null>(null);
 
   const [logCheckedItems, setLogCheckedItems] = useState<Set<number>>(new Set());
   const [isSavingLog, setIsSavingLog] = useState(false);
@@ -120,6 +126,150 @@ export default function UploadHubPage() {
   const [matchedItemIds, setMatchedItemIds] = useState<Record<number, string | null>>({});
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function getFallbackBbox(category: string | null): { x: number; y: number; w: number; h: number } {
+    switch (category) {
+      case "tops":
+        return { x: 0.1, y: 0.10, w: 0.8, h: 0.45 };
+      case "outer":
+        return { x: 0.05, y: 0.05, w: 0.90, h: 0.60 };
+      case "bottoms":
+        return { x: 0.1, y: 0.45, w: 0.8, h: 0.45 };
+      case "onepiece":
+        return { x: 0.05, y: 0.05, w: 0.90, h: 0.85 };
+      case "shoes":
+        return { x: 0.2, y: 0.75, w: 0.6, h: 0.25 };
+      case "bag":
+      default:
+        return { x: 0.1, y: 0.20, w: 0.8, h: 0.60 };
+    }
+  }
+
+  function adjustBbox(
+      bbox: { x: number; y: number; w: number; h: number },
+      imgW: number,
+      imgH: number
+    ): { x: number; y: number; w: number; h: number } {
+      const padding = 0.015;
+      const padX = Math.floor(padding * imgW);
+      const padY = Math.floor(padding * imgH);
+
+      let x = Math.floor(bbox.x * imgW);
+      let y = Math.floor(bbox.y * imgH);
+      let w = Math.floor(bbox.w * imgW);
+      let h = Math.floor(bbox.h * imgH);
+
+      // shoes: bboxが小さすぎる場合は下方向に拡張
+      // y+h が画像下端に近い場合、下端まで広げる
+      if (bbox.y + bbox.h > 0.8) {
+        const extendedH = Math.floor((1.0 - bbox.y) * imgH);
+        if (extendedH > h) h = extendedH;
+      }
+
+      // 横幅が極端に狭い場合（w < 0.2）は中央寄せで広げる
+      if (bbox.w < 0.2) {
+        const centerX = x + w / 2;
+        w = Math.floor(0.35 * imgW);
+        x = Math.max(0, Math.floor(centerX - w / 2));
+      }
+
+      const finalX = Math.max(0, x - padX);
+      const finalY = Math.max(0, y - padY);
+      const finalW = Math.min(imgW - finalX, w + padX * 2);
+      const finalH = Math.min(imgH - finalY, h + padY * 2);
+
+      return { x: finalX, y: finalY, w: finalW, h: finalH };
+    }
+
+  async function generateCropPreview(
+    imageDataUrl: string,
+    bbox: { x: number; y: number; w: number; h: number },
+    category?: string | null
+  ): Promise<string | null> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+
+        // bboxの品質チェック
+        const area = bbox.w * bbox.h;
+        const isBboxSuspect =
+          area > 0.70 ||
+          area < 0.01 ||
+          ((category === "tops" || category === "outer") && bbox.y < 0.25) ||
+          (category === "shoes" && bbox.y < 0.65);
+
+        const effectiveBbox = isBboxSuspect ? getFallbackBbox(category ?? null) : bbox;
+        const adjusted = adjustBbox(effectiveBbox, img.naturalWidth, img.naturalHeight);
+        const finalX = adjusted.x;
+        const finalY = adjusted.y;
+        const finalW = adjusted.w;
+        const finalH = adjusted.h;
+        if (finalW <= 0 || finalH <= 0) { resolve(null); return; }
+        canvas.width = finalW;
+        canvas.height = finalH;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { resolve(null); return; }
+        ctx.drawImage(img, finalX, finalY, finalW, finalH, 0, 0, finalW, finalH);
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.onerror = () => resolve(null);
+      img.src = imageDataUrl;
+    });
+  }
+
+  async function cropAndUpload(
+    imageDataUrl: string,
+    bbox: { x: number; y: number; w: number; h: number } | null | undefined,
+    category: string | null | undefined
+  ): Promise<string | null> {
+    if (!bbox) return null;
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = async () => {
+        const canvas = document.createElement("canvas");
+        let cropX = Math.floor(bbox.x * img.naturalWidth);
+        let cropY = Math.floor(bbox.y * img.naturalHeight);
+        let cropW = Math.floor(bbox.w * img.naturalWidth);
+        let cropH = Math.floor(bbox.h * img.naturalHeight);
+        if (cropW <= 0 || cropH <= 0) { resolve(null); return; }
+
+        // bboxの品質チェック
+        const area = bbox!.w * bbox!.h;
+        const isBboxSuspect =
+          area > 0.70 ||
+          area < 0.01 ||
+          ((category === "tops" || category === "outer") && bbox.y < 0.25) ||
+          (category === "shoes" && bbox.y < 0.65);
+
+        const effectiveBbox = isBboxSuspect ? getFallbackBbox(category ?? null) : bbox!;
+        const adjusted = adjustBbox(effectiveBbox, img.naturalWidth, img.naturalHeight);
+        const finalX = adjusted.x;
+        const finalY = adjusted.y;
+        const finalW = adjusted.w;
+        const finalH = adjusted.h;
+
+        canvas.width = finalW;
+        canvas.height = finalH;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { resolve(null); return; }
+        ctx.drawImage(img, finalX, finalY, finalW, finalH, 0, 0, finalW, finalH);
+
+        const croppedDataUrl = canvas.toDataURL("image/jpeg", 0.85);
+        try {
+          const blob = await (await fetch(croppedDataUrl)).blob();
+          const croppedFile = new File([blob], `cropped_${Date.now()}.jpg`, { type: "image/jpeg" });
+          const fd = new FormData();
+          fd.append("file", croppedFile);
+          const uploadRes = await fetch("/api/upload", { method: "POST", body: fd });
+          const uploadData = await uploadRes.json();
+          resolve(uploadData?.imageUrl ?? null);
+        } catch { resolve(null); }
+      };
+      img.onerror = () => resolve(null);
+      img.src = imageDataUrl;
+    });
+  }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -199,6 +349,14 @@ export default function UploadHubPage() {
           }
 
           if (action === "item") {
+            // 類似チェック用にクローゼット取得
+            if (closetItems.length === 0) {
+              try {
+                const res = await fetch("/api/items");
+                if (res.ok) setClosetItems(await res.json());
+              } catch {}
+            }
+
             const res = await fetch("/api/items/analyze", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -206,6 +364,20 @@ export default function UploadHubPage() {
             });
             const data = await res.json();
             newResults.item = res.ok ? (data.candidates ?? []) : null;
+            if (res.ok) console.log("[item candidates]", JSON.stringify(data.candidates?.map((c: any) => ({ name: c.name, category: c.category, bbox: c.bbox })), null, 2));
+
+            // bboxがあるcandidateを切り抜いてプレビュー生成
+            if (res.ok && data.candidates?.length > 0) {
+              const previews: Record<number, string> = {};
+              await Promise.all(
+                data.candidates.map(async (candidate: any, i: number) => {
+                  if (!candidate.bbox) return;
+                  const dataUrl = await generateCropPreview(imageDataUrl, candidate.bbox, candidate.category);
+                  if (dataUrl) previews[i] = dataUrl;
+                })
+              );
+              setCroppedPreviews(previews);
+            }
           }
 
           if (action === "log") {
@@ -314,27 +486,75 @@ export default function UploadHubPage() {
     }
   }
 
-  async function handleSaveItem(candidate: ItemCandidate, index: number) {
-    setSavingItemIndex(index);
-    try {
-      const fd = new FormData();
-      fd.append("file", file!);
-      const uploadRes = await fetch("/api/upload", { method: "POST", body: fd });
-      const uploadData = await uploadRes.json();
-      const imageUrl = uploadData?.imageUrl ?? null;
+    async function handleSaveItem(candidate: ItemCandidate, index: number) {
+        // closetItemsが空なら直接fetch
+        let currentClosetItems = closetItems;
+        if (currentClosetItems.length === 0) {
+          try {
+            const res = await fetch("/api/items");
+            if (res.ok) {
+              currentClosetItems = await res.json();
+              setClosetItems(currentClosetItems);
+            }
+          } catch {}
+        }
 
-      const res = await fetch("/api/items", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...candidate, imageUrl }),
-      });
-      if (res.ok) setSavedItems((prev) => new Set([...prev, index]));
-    } catch {
-      setMessage("保存に失敗しました");
-    } finally {
-      setSavingItemIndex(null);
+        const similarItems = currentClosetItems.filter(
+          (item) => item.category === candidate.category
+        );
+
+        if (similarItems.length > 0) {
+          setDuplicateConfirm({ index, candidate, matches: similarItems });
+          return;
+        }
+
+        await doSaveItem(candidate, index, null);
+      }
+
+    async function doSaveItem(
+      candidate: ItemCandidate,
+      index: number,
+      replaceItemId: string | null
+    ) {
+      setSavingItemIndex(index);
+      try {
+        const imageDataUrl = await toDataUrl(file!);
+        let imageUrl: string | null = null;
+        const bbox = (candidate as any).bbox;
+        if (bbox) {
+          imageUrl = await cropAndUpload(imageDataUrl, bbox, candidate.category);
+        }
+        if (!imageUrl) {
+          const fd = new FormData();
+          fd.append("file", file!);
+          const uploadRes = await fetch("/api/upload", { method: "POST", body: fd });
+          const uploadData = await uploadRes.json();
+          imageUrl = uploadData?.imageUrl ?? null;
+        }
+
+        if (replaceItemId) {
+          // 画像だけ差し替え
+          const res = await fetch(`/api/items/${replaceItemId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageUrl }),
+          });
+          if (res.ok) setSavedItems((prev) => new Set([...prev, index]));
+        } else {
+          const res = await fetch("/api/items", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...candidate, imageUrl }),
+          });
+          if (res.ok) setSavedItems((prev) => new Set([...prev, index]));
+        }
+      } catch {
+        setMessage("保存に失敗しました");
+      } finally {
+        setSavingItemIndex(null);
+        setDuplicateConfirm(null);
+      }
     }
-  }
 
   const canRun = file && selectedActions.size > 0 && !isRunning;
   const hasResults = Object.keys(results).length > 0;
@@ -507,6 +727,15 @@ export default function UploadHubPage() {
                       <div className="space-y-3">
                         {results.item.map((candidate, i) => (
                           <div key={i} className="rounded-xl bg-[#fdf2f6] p-3">
+                            {croppedPreviews[i] && (
+                              <div className="mb-3 overflow-hidden rounded-xl">
+                                <img
+                                  src={croppedPreviews[i]}
+                                  alt={candidate.name}
+                                  className="h-36 w-full object-cover"
+                                />
+                              </div>
+                            )}
                             <div className="mb-2 flex items-center justify-between">
                               <div>
                                 <p className="font-semibold">{candidate.name}</p>
@@ -722,6 +951,60 @@ export default function UploadHubPage() {
           <p className="mt-4 text-center text-sm text-red-500">{message}</p>
         )}
       </div>
+
+      {/* 類似アイテム確認モーダル */}
+      {duplicateConfirm && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-4 pb-8">
+          <div className="w-full max-w-md rounded-3xl bg-white p-5 shadow-xl">
+            <p className="mb-1 text-sm font-bold text-[#605D62]">似たアイテムがあります</p>
+            <p className="mb-4 text-xs text-[#605D62]/60">
+              クローゼットに同じカテゴリのアイテムがあります。同じアイテムなら画像を差し替えられます。
+            </p>
+
+            <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
+              {duplicateConfirm.matches.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    doSaveItem(duplicateConfirm.candidate, duplicateConfirm.index, item.id);
+                  }}
+                  className="shrink-0 rounded-2xl bg-[#fdf2f6] p-2 text-center ring-1 ring-[#FCE4EC] transition hover:ring-[#605D62]"
+                >
+                  <div className="h-20 w-20 overflow-hidden rounded-xl">
+                    {item.imageUrl ? (
+                      <img src={item.imageUrl} alt={item.name ?? ""} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-[10px] text-[#605D62]/40">
+                        画像なし
+                      </div>
+                    )}
+                  </div>
+                  <p className="mt-1 w-20 truncate text-center text-[10px] text-[#605D62]">
+                    {item.name ?? "名称未設定"}
+                  </p>
+                  <p className="text-[10px] text-[#605D62]/50">タップで差し替え</p>
+                </button>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => doSaveItem(duplicateConfirm.candidate, duplicateConfirm.index, null)}
+              className="mb-2 w-full rounded-2xl bg-[#605D62] py-3 text-sm font-semibold text-white"
+            >
+              別のアイテムとして新規登録
+            </button>
+            <button
+              type="button"
+              onClick={() => setDuplicateConfirm(null)}
+              className="w-full rounded-2xl bg-white py-3 text-sm font-medium text-[#605D62] ring-1 ring-[#FCE4EC]"
+            >
+              キャンセル
+            </button>
+          </div>
+        </div>
+      )}
 
       <BottomNav />
     </main>

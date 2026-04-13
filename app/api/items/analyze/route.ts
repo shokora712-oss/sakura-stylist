@@ -185,13 +185,21 @@ Return clothing candidates in JSON.
 
 IMPORTANT RULES:
 
-- bbox must tightly bound the item itself, not the surrounding body area.
-- Do not include head, arms, or torso when detecting tops.
-- For bottoms, include only the waist-to-hem region.
-- For shoes, bound ONLY the shoe body (sole to toe/heel). Exclude legs, floor, and background entirely. The bbox height should be small relative to the full image.
-- For bags, focus on the bag body rather than the arm holding it.
-- bbox coordinates must be normalized between 0 and 1.
-- x,y represent top-left corner, w,h represent width and height.
+BBOX ACCURACY IS THE MOST CRITICAL REQUIREMENT. Follow these rules strictly:
+
+- bbox must tightly bound the GARMENT ITSELF only. Never include body parts, background, floor, or other items.
+- bbox coordinates are normalized 0.0 to 1.0. x,y = top-left corner, w,h = width and height.
+- Each item must have a DIFFERENT bbox. If two items share nearly the same bbox, you are doing it wrong.
+- Prefer SMALLER, tighter bboxes over large loose ones. When in doubt, make it smaller.
+
+CATEGORY-SPECIFIC BBOX RULES (strictly follow):
+
+- outer (coat/jacket): bbox must cover ONLY the coat fabric. The h value must NOT exceed 0.55. Do not extend to the shoes. Coat ends at the hem, not at the floor.
+- tops: cover neckline to hem of the top only. Exclude face (y must be at least 0.15), hands, and anything below the waist. h should typically be 0.15 to 0.30.
+- bottoms: cover waist-to-hem of the bottom garment only. y should start where the top ends. Exclude torso, shoes, and floor. h should typically be 0.20 to 0.40.
+- shoes: bbox must be VERY SMALL. y must be greater than 0.75 (shoes are near the bottom of the image). h must be less than 0.15. Cover only the shoe body (toe to heel, sole to top). Exclude legs, floor, shadows entirely.
+- bag: cover only the bag body. Exclude arms, hands, straps beyond the bag body. h should typically be 0.10 to 0.25.
+- onepiece: cover from neckline to hem. Exclude face and shoes.
 
 Output text fields in Japanese.
 
