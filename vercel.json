@@ -1,0 +1,13 @@
+{
+  "functions": {
+    "app/api/items/analyze/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/evaluate/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/outfit-log/analyze/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}
