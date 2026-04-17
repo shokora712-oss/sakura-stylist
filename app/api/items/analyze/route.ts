@@ -56,6 +56,19 @@ type CandidateStatus = "draft" | "needs_review" | "split_generated";
 type CandidateConfidence = "high" | "medium" | "low";
 type SourceType = "detected" | "split";
 
+type ErrorCode =
+  | "E-ANLZ-001"
+  | "E-ANLZ-002"
+  | "E-ANLZ-101"
+  | "E-ANLZ-102"
+  | "E-ANLZ-201"
+  | "E-ANLZ-202"
+  | "E-ANLZ-203"
+  | "E-ANLZ-204"
+  | "E-ANLZ-901"
+  | "E-ANLZ-902"
+  | "E-ANLZ-999";
+
 type SingleAnalyzeResponse = {
   name: string | null;
   category: AllowedCategory | null;
@@ -418,8 +431,15 @@ function sanitizeBBox(value: unknown): CandidateBBox | null {
   const y = typeof raw.y === "number" ? raw.y : null;
   const w = typeof raw.w === "number" ? raw.w : null;
   const h = typeof raw.h === "number" ? raw.h : null;
+
   if ([x, y, w, h].some((v) => v === null || Number.isNaN(v))) return null;
-  return { x: clamp01(x!), y: clamp01(y!), w: clamp01(w!), h: clamp01(h!) };
+
+  return {
+    x: clamp01(x!),
+    y: clamp01(y!),
+    w: clamp01(w!),
+    h: clamp01(h!),
+  };
 }
 
 function clamp01(value: number) {
@@ -428,6 +448,7 @@ function clamp01(value: number) {
 
 function sanitizeSingleResponse(parsed: any): SingleAnalyzeResponse {
   const category = isAllowedCategory(parsed?.category) ? parsed.category : null;
+
   return {
     name: sanitizeNullableString(parsed?.name),
     category,
@@ -452,13 +473,20 @@ function sanitizeCandidate(
 ): OutfitAnalyzeCandidate {
   const category = isAllowedCategory(parsed?.category) ? parsed.category : null;
   const needsReview = sanitizeBoolean(parsed?.needsReview, false);
+
   const visibility = {
     partiallyVisible: sanitizeBoolean(parsed?.visibility?.partiallyVisible, false),
     overlapped: sanitizeBoolean(parsed?.visibility?.overlapped, false),
     ambiguousBoundary: sanitizeBoolean(parsed?.visibility?.ambiguousBoundary, false),
   };
+
   const resolvedNeedsReview =
-    needsReview || category === null || visibility.partiallyVisible || visibility.overlapped || visibility.ambiguousBoundary;
+    needsReview ||
+    category === null ||
+    visibility.partiallyVisible ||
+    visibility.overlapped ||
+    visibility.ambiguousBoundary;
+
   const fallbackConfidence: CandidateConfidence = resolvedNeedsReview ? "low" : "medium";
 
   return {
@@ -501,15 +529,23 @@ function sanitizeOutfitResponse(
   const rawCandidates: any[] = Array.isArray(parsed?.candidates) ? parsed.candidates : [];
   const sourceType: SourceType = mode === "split_candidate" ? "split" : "detected";
   const fallbackStatus: CandidateStatus = mode === "split_candidate" ? "split_generated" : "draft";
+
   const candidates = rawCandidates
     .slice(0, 6)
-    .map((candidate, index) => sanitizeCandidate(candidate, index, sourceType, sourceCandidateId, fallbackStatus));
-  const needsReviewCount = candidates.filter((c) => c.needsReview).length;
+    .map((candidate, index) =>
+      sanitizeCandidate(candidate, index, sourceType, sourceCandidateId, fallbackStatus)
+    );
+
+  const needsReviewCount = candidates.filter((candidate) => candidate.needsReview).length;
 
   return {
     success: true,
     mode,
-    image: { sourceImageUrl: null, width: null, height: null },
+    image: {
+      sourceImageUrl: null,
+      width: null,
+      height: null,
+    },
     summary: {
       detectedCount: candidates.length,
       needsReviewCount,
@@ -526,10 +562,110 @@ function sanitizeOutfitResponse(
 function extractJson(text: string) {
   const objectStart = text.indexOf("{");
   const objectEnd = text.lastIndexOf("}");
+
   if (objectStart !== -1 && objectEnd !== -1 && objectEnd > objectStart) {
     return text.slice(objectStart, objectEnd + 1);
   }
-  throw new Error("AI応答からJSONを抽出できませんでした");
+
+  throw codedError("E-ANLZ-202", "AI応答からJSONを抽出できませんでした");
+}
+
+function codedError(code: ErrorCode, detail?: string) {
+  const error = new Error(detail ? `[${code}] ${detail}` : `[${code}]`);
+  return error;
+}
+
+function parseErrorCode(error: unknown): ErrorCode | null {
+  if (!(error instanceof Error)) return null;
+  const match = error.message.match(/\[(E-ANLZ-\d{3})\]/);
+  return (match?.[1] as ErrorCode | undefined) ?? null;
+}
+
+function buildErrorResponse(
+  status: number,
+  code: ErrorCode,
+  message: string
+) {
+  return NextResponse.json(
+    {
+      error: message,
+      code,
+    },
+    { status }
+  );
+}
+
+function mapErrorToResponse(error: unknown) {
+  const code = parseErrorCode(error);
+
+  switch (code) {
+    case "E-ANLZ-001":
+      return buildErrorResponse(
+        400,
+        code,
+        "画像データの読み込みに失敗しました。画像を選び直してもう一度お試しください。"
+      );
+    case "E-ANLZ-002":
+      return buildErrorResponse(
+        400,
+        code,
+        "分割したいカテゴリを選んでから、もう一度お試しください。"
+      );
+    case "E-ANLZ-101":
+      return buildErrorResponse(
+        500,
+        code,
+        "現在画像解析機能の設定に問題があります。しばらくしてからもう一度お試しください。"
+      );
+    case "E-ANLZ-102":
+      return buildErrorResponse(
+        500,
+        code,
+        "現在画像解析機能の設定に問題があります。しばらくしてからもう一度お試しください。"
+      );
+    case "E-ANLZ-201":
+      return buildErrorResponse(
+        502,
+        code,
+        "画像解析に失敗しました。時間をおいてもう一度お試しください。"
+      );
+    case "E-ANLZ-202":
+      return buildErrorResponse(
+        502,
+        code,
+        "画像の解析結果を読み取れませんでした。別の画像でもう一度お試しください。"
+      );
+    case "E-ANLZ-203":
+      return buildErrorResponse(
+        502,
+        code,
+        "画像の解析結果を読み取れませんでした。別の画像でもう一度お試しください。"
+      );
+    case "E-ANLZ-204":
+      return buildErrorResponse(
+        502,
+        code,
+        "画像の解析結果が空でした。別の画像でもう一度お試しください。"
+      );
+    case "E-ANLZ-901":
+      return buildErrorResponse(
+        500,
+        code,
+        "現在画像解析機能の設定に問題があります。しばらくしてからもう一度お試しください。"
+      );
+    case "E-ANLZ-902":
+      return buildErrorResponse(
+        500,
+        code,
+        "現在画像解析機能の設定に問題があります。しばらくしてからもう一度お試しください。"
+      );
+    default:
+      return buildErrorResponse(
+        500,
+        "E-ANLZ-999",
+        "画像解析に失敗しました。別の画像でもう一度お試しください。"
+      );
+  }
 }
 
 async function requestJsonFromVision(params: {
@@ -538,13 +674,7 @@ async function requestJsonFromVision(params: {
   userText: string;
 }) {
   const model = process.env.OPENAI_VISION_MODEL;
-  if (!model) throw new Error("OPENAI_VISION_MODEL が設定されていません");
-
-  console.log("[items/analyze] requestJsonFromVision:start", {
-    model,
-    promptLength: params.prompt.length,
-    imageDataUrlPrefix: params.imageDataUrl.slice(0, 40),
-  });
+  if (!model) throw codedError("E-ANLZ-902", "OPENAI_VISION_MODEL が設定されていません");
 
   let response;
   try {
@@ -564,34 +694,45 @@ async function requestJsonFromVision(params: {
     });
   } catch (error) {
     console.error("[items/analyze] openai call failed:", error);
-    throw new Error(error instanceof Error ? `OpenAI呼び出し失敗: ${error.message}` : "OpenAI呼び出し失敗");
+    throw codedError(
+      "E-ANLZ-201",
+      error instanceof Error ? `OpenAI呼び出し失敗: ${error.message}` : "OpenAI呼び出し失敗"
+    );
   }
 
   const rawContent = response.choices?.[0]?.message?.content;
   const text = typeof rawContent === "string" ? rawContent : "";
 
-  console.log("[items/analyze] response text preview", text.slice(0, 500));
-
-  if (!text.trim()) throw new Error("OpenAIの応答テキストが空です");
+  if (!text.trim()) {
+    throw codedError("E-ANLZ-204", "OpenAIの応答テキストが空です");
+  }
 
   let jsonText = "";
   try {
     jsonText = extractJson(text);
   } catch (error) {
-    console.error("[items/analyze] extractJson failed. raw text:", text);
-    throw new Error(error instanceof Error ? `JSON抽出失敗: ${error.message}` : "JSON抽出失敗");
+    console.error("[items/analyze] extractJson failed");
+    throw codedError(
+      "E-ANLZ-202",
+      error instanceof Error ? error.message : "JSON抽出失敗"
+    );
   }
 
   try {
     return JSON.parse(jsonText);
   } catch (error) {
-    console.error("[items/analyze] JSON.parse failed. jsonText:", jsonText);
-    throw new Error(error instanceof Error ? `JSON解析失敗: ${error.message}` : "JSON解析失敗");
+    console.error("[items/analyze] JSON.parse failed");
+    throw codedError(
+      "E-ANLZ-203",
+      error instanceof Error ? `JSON解析失敗: ${error.message}` : "JSON解析失敗"
+    );
   }
 }
 
 function resolveMode(value: unknown): AnalyzeMode {
-  if (value === "outfit_photo" || value === "split_candidate" || value === "single_item") return value;
+  if (value === "outfit_photo" || value === "split_candidate" || value === "single_item") {
+    return value;
+  }
   return "single_item";
 }
 
@@ -607,13 +748,18 @@ function sanitizeSplitTargets(value: unknown) {
 export async function POST(req: Request) {
   try {
     if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json({ error: "OPENAI_API_KEY が設定されていません" }, { status: 500 });
+      return buildErrorResponse(
+        500,
+        "E-ANLZ-901",
+        "現在画像解析機能の設定に問題があります。しばらくしてからもう一度お試しください。"
+      );
     }
 
     const body = await req.json();
     const imageDataUrl = body?.imageDataUrl;
     const mode = resolveMode(body?.mode);
-    const sourceCandidateId = typeof body?.sourceCandidateId === "string" ? body.sourceCandidateId : null;
+    const sourceCandidateId =
+      typeof body?.sourceCandidateId === "string" ? body.sourceCandidateId : null;
     const splitTargets = sanitizeSplitTargets(body?.splitTargets);
     const sourceColor = sanitizeArray(body?.sourceColor, ALLOWED_COLOR_VALUES).slice(0, 2);
     const sourceSeason = sanitizeArray(body?.sourceSeason, ALLOWED_SEASON_VALUES);
@@ -622,11 +768,19 @@ export async function POST(req: Request) {
     const sourceFormality = sanitizeFormality(body?.sourceFormality);
 
     if (!imageDataUrl || typeof imageDataUrl !== "string") {
-      return NextResponse.json({ error: "imageDataUrl が必要です" }, { status: 400 });
+      return buildErrorResponse(
+        400,
+        "E-ANLZ-001",
+        "画像データの読み込みに失敗しました。画像を選び直してもう一度お試しください。"
+      );
     }
 
     if (mode === "split_candidate" && splitTargets.length === 0) {
-      return NextResponse.json({ error: "split_candidate では splitTargets が必要です" }, { status: 400 });
+      return buildErrorResponse(
+        400,
+        "E-ANLZ-002",
+        "分割したいカテゴリを選んでから、もう一度お試しください。"
+      );
     }
 
     if (mode === "single_item") {
@@ -635,6 +789,7 @@ export async function POST(req: Request) {
         imageDataUrl,
         userText: "画像内の主な服1つを検出し、必ずbbox付きで返してください。",
       });
+
       const sanitized = sanitizeSingleResponse(parsed);
       return NextResponse.json(sanitized);
     }
@@ -645,6 +800,7 @@ export async function POST(req: Request) {
         imageDataUrl,
         userText: "このコーデ写真に写っているアイテム候補を複数抽出し、Closet AI の候補JSONとして返してください。",
       });
+
       const sanitized = sanitizeOutfitResponse(parsed, "outfit_photo", null);
       return NextResponse.json(sanitized);
     }
@@ -685,7 +841,11 @@ export async function POST(req: Request) {
         memo: null,
         note: "AIが自動分割できなかったため、カテゴリのみ設定しました。内容を確認してください",
         reasons: ["ユーザーが手動分割を指定しました"],
-        visibility: { partiallyVisible: false, overlapped: false, ambiguousBoundary: false },
+        visibility: {
+          partiallyVisible: false,
+          overlapped: false,
+          ambiguousBoundary: false,
+        },
         bbox: null,
       }));
 
@@ -696,12 +856,8 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json(sanitized);
-
   } catch (error) {
     console.error("POST /api/items/analyze error:", error);
-    return NextResponse.json(
-      { error: error instanceof Error ? `画像解析に失敗しました: ${error.message}` : "画像解析に失敗しました" },
-      { status: 500 }
-    );
+    return mapErrorToResponse(error);
   }
 }

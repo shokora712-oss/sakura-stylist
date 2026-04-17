@@ -137,12 +137,16 @@ if (image.size > 5 * 1024 * 1024) {
     console.error("POST /api/evaluate error:", error);
 
     const rawMessage =
-      error instanceof Error ? error.message : "コーデ評価に失敗しました";
+      error instanceof Error ? error.message : "";
 
     const friendlyMessage =
       rawMessage.includes("expected pattern")
         ? "画像の形式またはサイズの処理に失敗しました。別の画像でもう一度試してください。"
-        : rawMessage;
+        : rawMessage.includes("JSON")
+        ? "画像の解析に失敗しました。別の画像でもう一度お試しください。"
+        : rawMessage.includes("OpenAI")
+        ? "現在評価機能が混み合っています。少し時間をおいてもう一度お試しください。"
+        : "コーデ評価に失敗しました。時間をおいてもう一度お試しください。";
 
     return NextResponse.json(
       {

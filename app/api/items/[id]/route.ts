@@ -43,12 +43,18 @@ export async function DELETE(req: Request, { params }: Params) {
   try {
     const { id } = await params;
 
-    await prisma.item.delete({
-      where: { id },
-    });
+    try {
+      await prisma.item.delete({
+        where: { id },
+      });
+    } catch (e: any) {
+      if (e?.code === "P2025") {
+        return NextResponse.json({ success: true });
+      }
+      throw e;
+    }
 
-    return NextResponse.json({ success: true });
-  } catch (error) {
+    return NextResponse.json({ success: true });  } catch (error) {
     console.error("DELETE /api/items/[id] error:", error);
     return NextResponse.json(
       { error: "アイテムの削除に失敗しました" },

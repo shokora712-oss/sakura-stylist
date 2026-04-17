@@ -294,6 +294,16 @@ function classNames(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
 }
 
+function buildApiErrorMessage(
+  json: { error?: string; code?: string } | null,
+  fallback: string
+) {
+  const message = json?.error ?? fallback;
+  return json?.code ? `${message}（${json.code}）` : message;
+}
+
+
+
 async function compressImageFile(file: File): Promise<File> {
   const imageUrl = URL.createObjectURL(file);
   try {
@@ -544,7 +554,14 @@ export default function ClosetNewPage() {
     uploadFormData.append("file", file);
     const uploadRes = await fetch("/api/upload", { method: "POST", body: uploadFormData });
     const uploadJson = await uploadRes.json().catch(() => null);
-    if (!uploadRes.ok) throw new Error(uploadJson?.error ?? "画像アップロードに失敗しました");
+    if (!uploadRes.ok) {
+      throw new Error(
+        buildApiErrorMessage(
+          uploadJson as { error?: string; code?: string } | null,
+          "画像アップロードに失敗しました"
+        )
+      );
+    }
     const uploadedUrl = uploadJson?.url ?? uploadJson?.imageUrl ?? uploadJson?.secure_url ?? null;
     if (!uploadedUrl) throw new Error("アップロード結果に画像URLが含まれていません");
     return String(uploadedUrl);
@@ -607,8 +624,15 @@ export default function ClosetNewPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imageDataUrl }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? "画像解析に失敗しました");
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(
+          buildApiErrorMessage(
+            json as { error?: string; code?: string } | null,
+            "画像解析に失敗しました"
+          )
+        );
+      }
       applyAnalyzeResultToForm(json as AnalyzeSingleResponse);
       setAnalyzeSuccess("解析結果をフォームに反映しました。必要なら修正して保存してください。");
     } catch (error) {
@@ -702,9 +726,18 @@ export default function ClosetNewPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: "outfit_photo", imageDataUrl }),
       });
-      const json = (await res.json()) as AnalyzeOutfitResponse | { error?: string };
-      if (!res.ok || !("success" in json)) {
-        throw new Error(("error" in json && json.error) || "コーデ写真の解析に失敗しました");
+      const json = (await res.json().catch(() => null)) as
+        | AnalyzeOutfitResponse
+        | { error?: string; code?: string }
+        | null;
+
+      if (!res.ok || !json || !("success" in json)) {
+        throw new Error(
+          buildApiErrorMessage(
+            json as { error?: string; code?: string } | null,
+            "コーデ写真の解析に失敗しました"
+          )
+        );
       }
 
       setOutfitSummaryMessage(json.summary.message);
@@ -822,9 +855,18 @@ export default function ClosetNewPage() {
         }),
       });
 
-      const json = (await res.json()) as AnalyzeOutfitResponse | { error?: string };
-      if (!res.ok || !("success" in json)) {
-        throw new Error(("error" in json && json.error) || "分割再解析に失敗しました");
+      const json = (await res.json().catch(() => null)) as
+        | AnalyzeOutfitResponse
+        | { error?: string; code?: string }
+        | null;
+
+      if (!res.ok || !json || !("success" in json)) {
+        throw new Error(
+          buildApiErrorMessage(
+            json as { error?: string; code?: string } | null,
+            "候補の分割に失敗しました"
+          )
+        );
       }
 
       const splitCandidates = await mapCandidatesForUiWithCrop(json, imageDataUrl, closetItems);
@@ -865,8 +907,15 @@ export default function ClosetNewPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formToPayload(form, finalImageUrl)),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? "保存に失敗しました");
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(
+          buildApiErrorMessage(
+            json as { error?: string; code?: string } | null,
+            "保存に失敗しました"
+          )
+        );
+      }
 
       setSaveSuccess("アイテムを保存しました");
       setForm(emptyForm());
@@ -923,8 +972,15 @@ export default function ClosetNewPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json?.error ?? "一括保存に失敗しました");
+        const json = await res.json().catch(() => null);
+        if (!res.ok) {
+          throw new Error(
+            buildApiErrorMessage(
+              json as { error?: string; code?: string } | null,
+              "一括保存に失敗しました"
+            )
+          );
+        }
         newCount = json?.count ?? newTargets.length;
       }
 
