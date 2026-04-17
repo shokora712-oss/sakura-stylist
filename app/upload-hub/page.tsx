@@ -310,6 +310,24 @@ export default function UploadHubPage() {
     });
   }
 
+  async function toResizedDataUrl(f: File, maxWidth = 1024, quality = 0.7): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxWidth / img.naturalWidth);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.floor(img.naturalWidth * scale);
+        canvas.height = Math.floor(img.naturalHeight * scale);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { reject(new Error("canvas失敗")); return; }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = reject;
+      img.src = URL.createObjectURL(f);
+    });
+  }
+
   async function handleRun() {
     if (!file || selectedActions.size === 0) return;
     setIsRunning(true);
@@ -319,7 +337,7 @@ export default function UploadHubPage() {
     setLogCheckedItems(new Set());
     setMatchedItemIds({});
 
-    const imageDataUrl = await toDataUrl(file);
+    const imageDataUrl = await toResizedDataUrl(file);
     const newResults: Results = {};
 
     // コーデログが選択されてたらクローゼットを先に取得
