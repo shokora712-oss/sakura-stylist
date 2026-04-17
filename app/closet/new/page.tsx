@@ -354,19 +354,58 @@ async function fileToDataUrl(file: File): Promise<string> {
 function getFallbackBbox(category: string | null): { x: number; y: number; w: number; h: number } {
   switch (category) {
     case "tops":
-      return { x: 0.1, y: 0.10, w: 0.8, h: 0.45 };
+      return { x: 0.1, y: 0.12, w: 0.8, h: 0.32 };
     case "outer":
-      return { x: 0.05, y: 0.05, w: 0.90, h: 0.60 };
+      return { x: 0.05, y: 0.10, w: 0.90, h: 0.50 };
     case "bottoms":
-      return { x: 0.1, y: 0.45, w: 0.8, h: 0.45 };
+      return { x: 0.1, y: 0.42, w: 0.8, h: 0.38 };
     case "onepiece":
-      return { x: 0.05, y: 0.05, w: 0.90, h: 0.85 };
+      return { x: 0.08, y: 0.12, w: 0.84, h: 0.62 };
     case "shoes":
-      return { x: 0.2, y: 0.75, w: 0.6, h: 0.25 };
+      return { x: 0.22, y: 0.78, w: 0.56, h: 0.14 };
     case "bag":
+      return { x: 0.18, y: 0.22, w: 0.42, h: 0.30 };
     default:
       return { x: 0.1, y: 0.20, w: 0.8, h: 0.60 };
   }
+}
+
+function clamp01(value: number) {
+  return Math.max(0, Math.min(1, value));
+}
+
+function adjustBboxByCategory(
+  bbox: { x: number; y: number; w: number; h: number },
+  category?: string | null
+): { x: number; y: number; w: number; h: number } {
+  let { x, y, w, h } = bbox;
+
+  if (category === "tops") {
+    y = Math.max(y, 0.14);
+    h = Math.min(h, 0.38);
+  } else if (category === "outer") {
+    y = Math.max(y, 0.08);
+    h = Math.min(h, 0.58);
+  } else if (category === "bottoms") {
+    y = Math.max(y, 0.34);
+    h = Math.min(h, 0.48);
+  } else if (category === "onepiece") {
+    y = Math.max(y, 0.10);
+    h = Math.min(h, 0.72);
+  } else if (category === "shoes") {
+    y = Math.max(y, 0.76);
+    h = Math.min(h, 0.16);
+  } else if (category === "bag") {
+    h = Math.min(h, 0.34);
+    w = Math.min(w, 0.50);
+  }
+
+  x = clamp01(x);
+  y = clamp01(y);
+  w = clamp01(Math.min(w, 1 - x));
+  h = clamp01(Math.min(h, 1 - y));
+
+  return { x, y, w, h };
 }
 
 async function cropCandidateImage(
@@ -376,54 +415,96 @@ async function cropCandidateImage(
 ): Promise<string | null> {
   return new Promise((resolve) => {
     const img = new Image();
+
     img.onload = () => {
       const canvas = document.createElement("canvas");
-      let cropX = Math.floor(bbox.x * img.naturalWidth);
-      let cropY = Math.floor(bbox.y * img.naturalHeight);
-      let cropW = Math.floor(bbox.w * img.naturalWidth);
-      let cropH = Math.floor(bbox.h * img.naturalHeight);
-      if (cropW <= 0 || cropH <= 0) { resolve(null); return; }
 
-      // bboxの品質チェック：怪しいbboxはカテゴリ別固定範囲にフォールバック
       const area = bbox.w * bbox.h;
-      const isBboxSuspect =
-        area > 0.70 ||
-        area < 0.01 ||
-        ((category === "tops" || category === "outer") && bbox.y < 0.25) ||
-        (category === "shoes" && bbox.y < 0.65);
+      const aspectRatio = bbox.h > 0 ? bbox.w / bbox.h : 0;
 
-      if (isBboxSuspect) {
-        const fallbackBbox = getFallbackBbox(category ?? null);
-        cropX = Math.floor(fallbackBbox.x * img.naturalWidth);
-        cropY = Math.floor(fallbackBbox.y * img.naturalHeight);
-        cropW = Math.floor(fallbackBbox.w * img.naturalWidth);
-        cropH = Math.floor(fallbackBbox.h * img.naturalHeight);
+      const isBboxSuspect =
+        area > 0.85 ||
+        area < 0.005 ||
+        bbox.w <= 0 ||
+        bbox.h <= 0 ||
+        bbox.x < 0 ||
+        bbox.y < 0 ||
+        bbox.x + bbox.w > 1.02 ||
+        bbox.y + bbox.h > 1.02 ||
+        ((category === "tops" || category === "outer") && bbox.y < 0.10) ||
+        (category === "bottoms" && bbox.y < 0.20) ||
+        (category === "shoes" && (bbox.y < 0.72 || bbox.h > 0.22)) ||
+        (category === "bag" && (bbox.h > 0.45 || bbox.w > 0.60)) ||
+        (category === "shoes" && aspectRatio > 3.5) ||
+        (category === "tops" && aspectRatio > 2.2);
+
+      let workingBbox = isBboxSuspect ? getFallbackBbox(category ?? null) : bbox;
+      workingBbox = adjustBboxByCategory(workingBbox, category);
+
+      let cropX = Math.floor(workingBbox.x * img.naturalWidth);
+      let cropY = Math.floor(workingBbox.y * img.naturalHeight);
+      let cropW = Math.floor(workingBbox.w * img.naturalWidth);
+      let cropH = Math.floor(workingBbox.h * img.naturalHeight);
+
+      if (cropW <= 0 || cropH <= 0) {
+        resolve(null);
+        return;
       }
 
       if (category === "shoes") {
-        const maxH = Math.floor(cropW * 1.5);
-        if (cropH > maxH) { cropY = cropY + Math.floor((cropH - maxH) / 2); cropH = maxH; }
+        const maxH = Math.floor(cropW * 0.9);
+        if (cropH > maxH) {
+          cropY = cropY + Math.floor((cropH - maxH) / 2);
+          cropH = maxH;
+        }
       } else if (category === "bag") {
-        const maxH = Math.floor(cropW * 1.5);
-        if (cropH > maxH) { cropY = cropY + Math.floor((cropH - maxH) / 4); cropH = maxH; }
+        const maxH = Math.floor(cropW * 1.15);
+        if (cropH > maxH) {
+          cropY = cropY + Math.floor((cropH - maxH) / 3);
+          cropH = maxH;
+        }
       } else if (category === "tops") {
-        const maxH = Math.floor(cropW * 2);
-        if (cropH > maxH) cropH = maxH;
+        const maxH = Math.floor(cropW * 1.35);
+        if (cropH > maxH) {
+          cropH = maxH;
+        }
+      } else if (category === "bottoms") {
+        const minH = Math.floor(cropW * 0.9);
+        if (cropH < minH) {
+          cropH = Math.min(minH, img.naturalHeight - cropY);
+        }
       }
-      const padding = 0.015;
+
+      let padding = 0.01;
+      if (category === "outer" || category === "onepiece") padding = 0.02;
+      if (category === "shoes" || category === "bag") padding = 0.015;
+
       const padX = Math.floor(padding * img.naturalWidth);
       const padY = Math.floor(padding * img.naturalHeight);
+
       const finalX = Math.max(0, cropX - padX);
       const finalY = Math.max(0, cropY - padY);
       const finalW = Math.min(img.naturalWidth - finalX, cropW + padX * 2);
       const finalH = Math.min(img.naturalHeight - finalY, cropH + padY * 2);
+
+      if (finalW <= 0 || finalH <= 0) {
+        resolve(null);
+        return;
+      }
+
       canvas.width = finalW;
       canvas.height = finalH;
+
       const ctx = canvas.getContext("2d");
-      if (!ctx) { resolve(null); return; }
+      if (!ctx) {
+        resolve(null);
+        return;
+      }
+
       ctx.drawImage(img, finalX, finalY, finalW, finalH, 0, 0, finalW, finalH);
       resolve(canvas.toDataURL("image/jpeg", 0.85));
     };
+
     img.onerror = () => resolve(null);
     img.src = imageDataUrl;
   });
